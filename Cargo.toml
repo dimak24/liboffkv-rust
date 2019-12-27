@@ -1,0 +1,14 @@
+[package]
+name = "rsoffkv"
+version = "0.1.0"
+authors = ["Dmitriy <dimak24.05@mail.ru>"]
+edition = "2018"
+
+
+[dependencies]
+libc = "0.2"
+
+
+[build-dependencies]
+cc = "1.0"
+# gcc = "0.3"
