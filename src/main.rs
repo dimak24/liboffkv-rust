@@ -1,31 +1,89 @@
 extern crate libc;
-use libc::{size_t,int64_t};
+use libc::{size_t,int64_t,c_int};
 use std::ffi::{CString,CStr};
-use std::os::raw::{c_char,c_int,c_void};
+use std::os::raw::{c_char,c_void};
 use std::fmt;
 use std::error;
+use std::ptr;
+use std::slice;
+use std::thread;
+use std::time;
+use std::slice::from_raw_parts;
 
 
-#[link(name="offkv_c")]
+#[link(name="liboffkv_c")]
 extern "C" {
     fn offkv_open(
         url: *const c_char,
         prefix: *const c_char,
-        error_code: *mut c_int) -> *mut c_void;
+        error_code: *mut c_int
+    ) -> *mut c_void;
 
     fn offkv_create(
         handle: *mut c_void,
         key: *const c_char,
         value: *const c_char,
         value_size: size_t,
-        flags: c_int) -> int64_t;
+        flags: c_int
+    ) -> int64_t;
 
     fn offkv_erase(
         handle: *mut c_void,
         key: *const c_char,
         version: int64_t,
     ) -> c_int;
+
+    fn offkv_set(
+        handle: *mut c_void,
+        key: *const c_char,
+        value: *const c_char,
+        value_size: size_t,
+    ) -> int64_t;
+
+    fn offkv_cas(
+        handle: *mut c_void,
+        key: *const c_char,
+        value: *const c_char,
+        value_size: size_t,
+        version: int64_t,
+    ) -> int64_t;
+
+    fn offkv_get(
+        handle: *mut c_void,
+        key: *const c_char,
+        watch_handle: *mut *mut c_void,
+    ) -> GetResult;
+
+    fn offkv_exists(
+        handle: *mut c_void,
+        key: *const c_char,
+        watch_handle: *mut *mut c_void,
+    ) -> int64_t;
+
+    fn offkv_children(
+        handle: *mut c_void,
+        key: *const c_char,
+        watch_handle: *mut *mut c_void,
+    ) -> ChildrenResult;
+
+    fn offkv_watch(watch_handle: *mut c_void);
+    fn offkv_watch_drop(watch_handle: *mut c_void);
 }
+
+#[repr(C)]
+struct GetResult {
+    value: *mut c_char,
+    value_size: size_t,
+    version: int64_t,
+}
+
+#[repr(C)]
+struct ChildrenResult {
+    keys: *mut *mut c_char,
+    nkeys: size_t,
+    error_code: c_int,
+}
+
 
 //flags
 const OFFKV_LEASE: i32 = 1 << 0;
@@ -61,9 +119,6 @@ enum OffkvTxnOpCode {
     OFFKV_OP_ERASE,
 }
 
-fn to_cstring(s: &str) -> *const c_char {
-    CString::new(s).expect("Failed to create CString").as_ptr()
-}
 
 #[derive(Debug)]
 enum OffkvError {
@@ -93,18 +148,26 @@ impl error::Error for OffkvError {
     }
 }
 
+type Result<T> = std::result::Result<T, OffkvError>;
+
 #[derive(Debug)]
-struct WatchHandle;
+struct WatchHandle {
+    _offkv_watch_handle: *mut c_void,
+}
 
 impl WatchHandle {
     fn wait(&self) {
-
+        unsafe {
+            offkv_watch(self._offkv_watch_handle);
+        }
     }
 }
 
 impl Drop for WatchHandle {
     fn drop(&mut self) {
-
+        unsafe {
+            offkv_watch_drop(self._offkv_watch_handle);
+        }
     }
 }
 
@@ -124,17 +187,12 @@ type Transaction = (Vec<TxnCheck>, Vec<TxnOp>);
 struct Client {
     offkv_handle: *mut c_void,
 
-    // fn exists(key: &str, watch: bool) -> Result<(i64, Option<WatchHandle>), OffkvError>;
-    // fn get(key: &str, watch: bool) -> Result<(i64, String, Option<WatchHandle>), OffkvError>;
-    // fn get_children(key: &str, watch: bool) -> Result<Vec<String>, OffkvError>;
-    // fn set(key: &str, value: &str) -> Result<i64, OffkvError>;
-    // fn cas(key: &str, value: &str, version: i64) -> Result<i64, OffkvError>;
     // fn commit(txn: &Transaction) -> Result<Vec<i64>, OffkvError>;
 }
 
 
 impl Client {
-    fn new(url: &str, prefix: &str) -> Result<Self, OffkvError> {
+    fn new(url: &str, prefix: &str) -> Result<Self> {
         let mut error_code: i32 = 0;
 
         let mut offkv_handle: *mut c_void = unsafe {
@@ -153,7 +211,7 @@ impl Client {
         }
     }
 
-    fn create(&self, key: &str, value: &str, leased: bool) -> Result<i64, OffkvError> {
+    fn create(&self, key: &str, value: &str, leased: bool) -> Result<i64> {
         let result = unsafe {
             offkv_create(
                 self.offkv_handle,
@@ -175,7 +233,7 @@ impl Client {
         }
     }
 
-    fn erase(&self, key: &str, version: i64) -> Result<(), OffkvError> {
+    fn erase(&self, key: &str, version: i64) -> Result<()> {
         let result = unsafe {
             offkv_erase(
                 self.offkv_handle,
@@ -190,10 +248,181 @@ impl Client {
             None => Ok(()),
         }
     }
+
+    fn set(&self, key: &str, value: &str) -> Result<i64> {
+        let result = unsafe {
+            offkv_set(
+                self.offkv_handle,
+                CString::new(key)
+                    .expect("Failed to create CString").as_ptr(),
+                CString::new(value)
+                    .expect("Failed to create CString").as_ptr(),
+                value.len(),
+            )
+        };
+
+        match from_error_code(result) {
+            Some(error) => Err(error),
+            None => Ok(result),
+        }
+    }
+
+    fn cas(&self, key: &str, value: &str, version: i64) -> Result<i64> {
+        let result = unsafe {
+            offkv_cas(
+                self.offkv_handle,
+                CString::new(key)
+                    .expect("Failed to create CString").as_ptr(),
+                CString::new(value)
+                    .expect("Failed to create CString").as_ptr(),
+                value.len(),
+                version,
+            )
+        };
+
+        match from_error_code(result) {
+            Some(error) => Err(error),
+            None => Ok(result),
+        }
+    }
+
+    fn get(&self, key: &str, watch: bool)
+        -> Result<(i64, String, Option<WatchHandle>)> {
+
+        let mut watch_handle: *mut c_void = match watch {
+            true => ptr::NonNull::dangling().as_ptr(),
+            false => ptr::null_mut(),
+        };
+
+        let GetResult{version, value, value_size} = unsafe {
+            offkv_get(
+                self.offkv_handle,
+                CString::new(key)
+                    .expect("Failed to create CString").as_ptr(),
+                &mut watch_handle,
+            )
+        };
+
+        match from_error_code(version) {
+            Some(error) => Err(error),
+            None => {
+                // <str_value> now _owns_ the data <value> is pointing at
+                // so on its destroy the data will be freed
+                let str_value = unsafe {
+                    String::from_raw_parts(value as *mut u8, value_size, value_size)
+                };
+
+                let watch_handle = if !watch_handle.is_null() {
+                    Some(WatchHandle{ _offkv_watch_handle: watch_handle})
+                } else {
+                    None
+                };
+
+                return Ok((version, str_value, watch_handle));
+            }
+        }
+    }
+
+    fn exists(&self, key: &str, watch: bool) -> Result<(i64, Option<WatchHandle>)> {
+        let mut watch_handle: *mut c_void = match watch {
+            true => ptr::NonNull::dangling().as_ptr(),
+            false => ptr::null_mut(),
+        };
+
+        let result = unsafe {
+            offkv_exists(
+                self.offkv_handle,
+                CString::new(key)
+                    .expect("Failed to create CString").as_ptr(),
+                &mut watch_handle,
+            )
+        };
+
+        match from_error_code(result) {
+            Some(error) => Err(error),
+            None => {
+                let watch_handle = if !watch_handle.is_null() {
+                    Some(WatchHandle{ _offkv_watch_handle: watch_handle})
+                } else {
+                    None
+                };
+
+                Ok((result, watch_handle))
+            }
+        }
+    }
+
+    fn get_children(&self, key: &str, watch: bool)
+        -> Result<(Vec<String>, Option<WatchHandle>)> {
+
+        let mut watch_handle: *mut c_void = match watch {
+            true => ptr::NonNull::dangling().as_ptr(),
+            false => ptr::null_mut(),
+        };
+
+        let ChildrenResult{keys, nkeys, error_code} = unsafe {
+            offkv_children(
+                self.offkv_handle,
+                CString::new(key)
+                    .expect("Failed to create CString").as_ptr(),
+                &mut watch_handle,
+            )
+        };
+
+        match from_error_code(error_code as i64) {
+            Some(error) => Err(error),
+            None => {
+                let mut vec = Vec::new();
+                unsafe {
+                    let keys = slice::from_raw_parts(keys, nkeys);
+                    for key in keys {
+                        vec.push(CString::from_raw(*key).into_string().unwrap());
+                    }
+                }
+
+                let watch_handle = if !watch_handle.is_null() {
+                    Some(WatchHandle{ _offkv_watch_handle: watch_handle})
+                } else {
+                    None
+                };
+
+                Ok((vec, watch_handle))
+            }
+        }
+    }
 }
 
 fn main() {
-    let c = Client::new("KEK", "LOL").unwrap();
-    c.create("key", "value", false).unwrap();
-    c.erase("key", 0).unwrap();
+    let c = Client::new("zk://localhost:2181", "/rust_test_key").unwrap();
+    c.erase("/key", 0);
+    c.create("/key", "value", false).unwrap();
+    let v = c.set("/key", "new_value").unwrap();
+    assert!(c.cas("/key", "kek", v).unwrap() != 0);
+
+    thread::spawn(|| {
+        let new_c = Client::new("zk://localhost:2181", "/rust_test_key").unwrap();
+        let (_, value, watch_handle) =
+            new_c.get("/key", true).unwrap();
+        assert_eq!(value, String::from("kek"));
+
+        watch_handle.unwrap().wait();
+        let (_, value, _) =
+            new_c.get("/key", false).unwrap();
+        assert_eq!(value, String::from("lol"));
+    });
+
+    std::thread::sleep(time::Duration::from_secs(5));
+    c.set("/key", "lol").unwrap();
+
+    c.create("/key/key1", "value", true);
+    c.create("/key/key2", "value", true);
+
+    assert!(c.exists("/key/key1", false).unwrap().0 != 0);
+
+    let (children, _) = c.get_children("/key", false).unwrap();
+    for child in children {
+        println!("{:?}", child);
+    }
+
+    c.erase("/key", 0).unwrap();
 }
