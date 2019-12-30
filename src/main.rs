@@ -9,6 +9,7 @@ use std::slice;
 use std::thread;
 use std::time;
 use std::slice::from_raw_parts;
+use syntax::util::map_in_place::MapInPlace;
 
 
 #[link(name="liboffkv_c")]
@@ -52,7 +53,7 @@ extern "C" {
         handle: *mut c_void,
         key: *const c_char,
         watch_handle: *mut *mut c_void,
-    ) -> GetResult;
+    ) -> offkv_GetResult;
 
     fn offkv_exists(
         handle: *mut c_void,
@@ -64,24 +65,61 @@ extern "C" {
         handle: *mut c_void,
         key: *const c_char,
         watch_handle: *mut *mut c_void,
-    ) -> ChildrenResult;
+    ) -> offkv_ChildrenResult;
+
+    fn offkv_commit(
+        handle: *mut c_void,
+        checks: *const Check,
+        nchecks: size_t,
+        ops: *const Operations,
+        nops: size_t,
+        result: *mut offkv_TxnResult,
+    ) -> c_int;
 
     fn offkv_watch(watch_handle: *mut c_void);
     fn offkv_watch_drop(watch_handle: *mut c_void);
 }
 
 #[repr(C)]
-struct GetResult {
+struct offkv_GetResult {
     value: *mut c_char,
     value_size: size_t,
     version: int64_t,
 }
 
 #[repr(C)]
-struct ChildrenResult {
+struct offkv_ChildrenResult {
     keys: *mut *mut c_char,
     nkeys: size_t,
     error_code: c_int,
+}
+
+#[repr(C)]
+struct offkv_TxnCheck {
+    key: *const c_char,
+    version: int64_t,
+}
+
+#[repr(C)]
+struct offkv_TxnOp {
+    op_kind: c_int,
+    flags: c_int,
+    key: *const c_char,
+    value: *const c_char,
+    value_size: size_t,
+}
+
+#[repr(C)]
+struct offkv_TxnOpResult {
+    op_kind: c_int,
+    version: int64_t,
+}
+
+#[repr(C)]
+struct offkv_TxnResult {
+    results: *mut offkv_TxnOpResult,
+    nresults: size_t,
+    failed_op: size_t,
 }
 
 
@@ -171,18 +209,26 @@ impl Drop for WatchHandle {
     }
 }
 
-struct TxnCheck {
-    key: String,
+struct TxnCheck<'a> {
+    key: &'a str,
     version: i64,
 }
 
-enum TxnOp {
-    Create { key: String, value: String, leased: bool },
-    Set { key: String, value: String },
-    Erase { key: String },
+enum TxnOp<'a> {
+    Create { key: &'a str, value: &'a str, leased: bool },
+    Set    { key: &'a str, value: &'a str},
+    Erase  { key: &'a str },
 }
 
-type Transaction = (Vec<TxnCheck>, Vec<TxnOp>);
+struct Transaction<'a> {
+    checks: Vec<TxnCheck<'a>>,
+    ops: Vec<TxnOp<'a>>,
+}
+
+enum TxnOpResult {
+    Create(i64),
+    Set(i64),
+}
 
 struct Client {
     offkv_handle: *mut c_void,
@@ -294,7 +340,7 @@ impl Client {
             false => ptr::null_mut(),
         };
 
-        let GetResult{version, value, value_size} = unsafe {
+        let offkv_GetResult{version, value, value_size} = unsafe {
             offkv_get(
                 self.offkv_handle,
                 CString::new(key)
@@ -360,7 +406,7 @@ impl Client {
             false => ptr::null_mut(),
         };
 
-        let ChildrenResult{keys, nkeys, error_code} = unsafe {
+        let offkv_ChildrenResult{keys, nkeys, error_code} = unsafe {
             offkv_children(
                 self.offkv_handle,
                 CString::new(key)
@@ -387,6 +433,105 @@ impl Client {
                 };
 
                 Ok((vec, watch_handle))
+            }
+        }
+    }
+
+    fn commit(&self, transaction: Transaction) -> Result<Vec<TxnOpResult>> {
+        let mut checks = Vec::new();
+        for (key, version) in transaction.checks {
+            checks.push(offkv_TxnCheck{
+                key: CString::new(key)
+                    .expect("Failed to create CString").as_ptr(),
+                version,
+            });
+        }
+
+        let mut ops = Vec::new();
+        for op in transaction.ops {
+            match op {
+                TxnOp::Create{key, value, leased} => {
+                    ops.push(offkv_TxnOp{
+                        op_kind: OffkvTxnOpCode::OFFKV_OP_CREATE as c_int,
+                        flags: match leased {
+                            true => OFFKV_LEASE,
+                            false => 0
+                        },
+                        key: CString::new(key)
+                            .expect("Failed to create CString").as_ptr(),
+                        value: CString::new(value)
+                            .expect("Failed to create CString").as_ptr(),
+                        value_size: value.len(),
+                    });
+                },
+                TxnOp::Set{key, value} => {
+                    ops.push(offkv_TxnOp{
+                        op_kind: OffkvTxnOpCode::OFFKV_OP_SET as c_int,
+                        flags: 0,
+                        key: CString::new(key)
+                            .expect("Failed to create CString").as_ptr(),
+                        value: CString::new(value)
+                            .expect("Failed to create CString").as_ptr(),
+                        value_size: value.len(),
+                    });
+                },
+                TxnOp::Erase{key} => {
+                    ops.push(offkv_TxnOp{
+                        op_kind: OffkvTxnOpCode::OFFKV_OP_ERASE as c_int,
+                        flags: 0,
+                        key: CString::new(key)
+                            .expect("Failed to create CString").as_ptr(),
+                        value: ptr::null(),
+                        value_size: 0,
+                    });
+                },
+            }
+        }
+
+        let mut results = ptr::null_mut();
+        let mut nresults: size_t = 0;
+        let mut failed_op: size_t = -1;
+
+        let mut txn_result = offkv_TxnResult{
+            results: results as *mut offkv_TxnOpResult,
+            &mut nresults,
+            &mut failed_op,
+        };
+
+        let error_code = unsafe {
+            offkv_commit(
+                self.offkv_handle,
+                checks.as_ptr(),
+                checks.len(),
+                ops.as_ptr(),
+                ops.len(),
+                &mut txn_result,
+            )
+        };
+
+        match from_error_code(error_code as i64) {
+            Some(error) => Err(error),
+            None => {
+                if failed_op != 0 {
+                    Err(OffkvError::TxnFailed(failed_op as u32))
+                } else {
+                    Ok(unsafe {
+                        Vec::from_raw_parts(
+                            results as *mut offkv_TxnOpResult,
+                            nresults,
+                            nresults)
+                        }.expect("Failed to create vector from raw")
+                        .iter()
+                        .map(|offkv_TxnOpResult{op_kind, version}|
+                            match op_kind {
+                                x if x == OffkvTxnOpCode::OFFKV_OP_CREATE as i32
+                                    => TxnOpResult::Create(version),
+                                x if x == OffkvTxnOpCode::OFFKV_OP_SET as i32
+                                    => TxnOpResult::Set(version),
+                                _ => unreachable!(),
+                            })
+                        .collect())
+                }
             }
         }
     }
@@ -423,6 +568,19 @@ fn main() {
     for child in children {
         println!("{:?}", child);
     }
+
+    let result = c.commit(Transaction{
+            checks: vec![
+                TxnCheck{key: "/key", version: 0},
+                TxnCheck{key: "/key/ke1", version: 0},
+            ],
+            ops: vec![
+                TxnOp::Create{key: "/new_key", value: "value", leased: true},
+                TxnOp::Set{key: "/key/key1", value: "new_value"},
+                TxnOp::Erase{key: "/key/key2"},
+            ],
+        }
+    ).unwrap();
 
     c.erase("/key", 0).unwrap();
 }
