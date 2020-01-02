@@ -8,8 +8,7 @@ use std::ptr;
 use std::slice;
 use std::thread;
 use std::time;
-use std::slice::from_raw_parts;
-use syntax::util::map_in_place::MapInPlace;
+use std::mem;
 
 
 #[link(name="liboffkv_c")]
@@ -69,9 +68,9 @@ extern "C" {
 
     fn offkv_commit(
         handle: *mut c_void,
-        checks: *const Check,
+        checks: *const offkv_TxnCheck,
         nchecks: size_t,
-        ops: *const Operations,
+        ops: *const offkv_TxnOp,
         nops: size_t,
         result: *mut offkv_TxnResult,
     ) -> c_int;
@@ -145,6 +144,7 @@ fn from_error_code(error_code: i64) -> Option<OffkvError> {
         x if x == OffkvErrorCode::OFFKV_ENOENT as i64 => Some(OffkvError::NoEntry),
         x if x == OffkvErrorCode::OFFKV_EADDR as i64 => Some(OffkvError::InvalidAddress),
         x if x == OffkvErrorCode::OFFKV_EKEY as i64 => Some(OffkvError::InvalidKey),
+        x if x == OffkvErrorCode::OFFKV_ETXN as i64 => Some(OffkvError::TxnFailed(0)),
         _ => None,
     }
 }
@@ -232,8 +232,6 @@ enum TxnOpResult {
 
 struct Client {
     offkv_handle: *mut c_void,
-
-    // fn commit(txn: &Transaction) -> Result<Vec<i64>, OffkvError>;
 }
 
 
@@ -243,6 +241,8 @@ impl Client {
 
         let mut offkv_handle: *mut c_void = unsafe {
             offkv_open(
+                // create a null-terminated owned string
+                // it will be live until the function returns so ptr will be valid
                 CString::new(url)
                     .expect("Failed to create CString").as_ptr(),
                 CString::new(prefix)
@@ -263,8 +263,8 @@ impl Client {
                 self.offkv_handle,
                 CString::new(key)
                     .expect("Failed to create CString").as_ptr(),
-                CString::new(value)
-                    .expect("Failed to create CString").as_ptr(),
+                // not null-terminated
+                value.as_ptr() as *const c_char,
                 value.len(),
                 match leased {
                     true => OFFKV_LEASE as c_int,
@@ -301,8 +301,7 @@ impl Client {
                 self.offkv_handle,
                 CString::new(key)
                     .expect("Failed to create CString").as_ptr(),
-                CString::new(value)
-                    .expect("Failed to create CString").as_ptr(),
+                value.as_ptr() as *const c_char,
                 value.len(),
             )
         };
@@ -319,8 +318,7 @@ impl Client {
                 self.offkv_handle,
                 CString::new(key)
                     .expect("Failed to create CString").as_ptr(),
-                CString::new(value)
-                    .expect("Failed to create CString").as_ptr(),
+                value.as_ptr() as *const c_char,
                 value.len(),
                 version,
             )
@@ -439,48 +437,67 @@ impl Client {
 
     fn commit(&self, transaction: Transaction) -> Result<Vec<TxnOpResult>> {
         let mut checks = Vec::new();
-        for (key, version) in transaction.checks {
+
+        // firstly create null-terminated c-strings
+        let cstrings_checks : Vec<CString> =
+            transaction.checks
+                .iter()
+                .map(|TxnCheck{key, ..}| {
+                    CString::new(*key).expect("Failed to create CString")
+                })
+                .collect();
+
+        let cstrings_ops : Vec<CString> =
+            transaction.ops
+                .iter()
+                .map(|op| match *op {
+                    TxnOp::Create{key, ..} |
+                    TxnOp::Set{key, ..} |
+                    TxnOp::Erase{key}
+                        => CString::new(key).expect("Failed to create CString")
+                })
+                .collect();
+
+
+        // then pass pointers to them
+        for (TxnCheck{version, ..}, key) in transaction.checks.iter().zip(cstrings_checks.iter()) {
             checks.push(offkv_TxnCheck{
-                key: CString::new(key)
-                    .expect("Failed to create CString").as_ptr(),
-                version,
+                key: key.as_ptr(),
+                version: *version,
             });
         }
 
         let mut ops = Vec::new();
-        for op in transaction.ops {
+        for (op, key) in transaction.ops.iter().zip(cstrings_ops.iter()) {
             match op {
-                TxnOp::Create{key, value, leased} => {
+                TxnOp::Create{value, leased, ..} => {
                     ops.push(offkv_TxnOp{
                         op_kind: OffkvTxnOpCode::OFFKV_OP_CREATE as c_int,
-                        flags: match leased {
+                        flags: match *leased {
                             true => OFFKV_LEASE,
                             false => 0
                         },
-                        key: CString::new(key)
-                            .expect("Failed to create CString").as_ptr(),
-                        value: CString::new(value)
-                            .expect("Failed to create CString").as_ptr(),
+                        key: key.as_ptr(),
+                        value: value.as_ptr() as *const c_char,
                         value_size: value.len(),
                     });
                 },
-                TxnOp::Set{key, value} => {
+                TxnOp::Set{value, ..} => {
                     ops.push(offkv_TxnOp{
                         op_kind: OffkvTxnOpCode::OFFKV_OP_SET as c_int,
-                        flags: 0,
-                        key: CString::new(key)
-                            .expect("Failed to create CString").as_ptr(),
-                        value: CString::new(value)
-                            .expect("Failed to create CString").as_ptr(),
+                        key: key.as_ptr(),
+                        value: value.as_ptr() as *const c_char,
                         value_size: value.len(),
+                        // default
+                        flags: 0,
                     });
                 },
-                TxnOp::Erase{key} => {
+                TxnOp::Erase{..} => {
                     ops.push(offkv_TxnOp{
                         op_kind: OffkvTxnOpCode::OFFKV_OP_ERASE as c_int,
+                        key: key.as_ptr(),
+                        // default
                         flags: 0,
-                        key: CString::new(key)
-                            .expect("Failed to create CString").as_ptr(),
                         value: ptr::null(),
                         value_size: 0,
                     });
@@ -488,15 +505,7 @@ impl Client {
             }
         }
 
-        let mut results = ptr::null_mut();
-        let mut nresults: size_t = 0;
-        let mut failed_op: size_t = -1;
-
-        let mut txn_result = offkv_TxnResult{
-            results: results as *mut offkv_TxnOpResult,
-            &mut nresults,
-            &mut failed_op,
-        };
+        let mut txn_result = mem::MaybeUninit::uninit();
 
         let error_code = unsafe {
             offkv_commit(
@@ -505,34 +514,30 @@ impl Client {
                 checks.len(),
                 ops.as_ptr(),
                 ops.len(),
-                &mut txn_result,
+                txn_result.as_mut_ptr(),
             )
         };
 
+        let offkv_TxnResult{results, nresults, failed_op} =
+            unsafe { txn_result.assume_init() };
+
         match from_error_code(error_code as i64) {
+            Some(OffkvError::TxnFailed(_)) => Err(OffkvError::TxnFailed(failed_op as u32)),
             Some(error) => Err(error),
-            None => {
-                if failed_op != 0 {
-                    Err(OffkvError::TxnFailed(failed_op as u32))
-                } else {
-                    Ok(unsafe {
-                        Vec::from_raw_parts(
-                            results as *mut offkv_TxnOpResult,
-                            nresults,
-                            nresults)
-                        }.expect("Failed to create vector from raw")
-                        .iter()
-                        .map(|offkv_TxnOpResult{op_kind, version}|
-                            match op_kind {
-                                x if x == OffkvTxnOpCode::OFFKV_OP_CREATE as i32
-                                    => TxnOpResult::Create(version),
-                                x if x == OffkvTxnOpCode::OFFKV_OP_SET as i32
-                                    => TxnOpResult::Set(version),
-                                _ => unreachable!(),
-                            })
-                        .collect())
-                }
-            }
+            None => Ok(unsafe { Vec::from_raw_parts(results, nresults, nresults) }
+                .iter()
+                .map(|offkv_TxnOpResult{op_kind, version}|
+                    match *op_kind {
+                        x if x == OffkvTxnOpCode::OFFKV_OP_CREATE as i32
+                        => TxnOpResult::Create(*version),
+                        x if x == OffkvTxnOpCode::OFFKV_OP_SET as i32
+                        => TxnOpResult::Set(*version),
+                        x => {
+                            println!("{:?}", x as i32);
+                            unreachable!()
+                        },
+                    })
+                .collect())
         }
     }
 }
@@ -559,8 +564,8 @@ fn main() {
     std::thread::sleep(time::Duration::from_secs(5));
     c.set("/key", "lol").unwrap();
 
-    c.create("/key/key1", "value", true);
-    c.create("/key/key2", "value", true);
+    c.create("/key/key1", "value", true).unwrap();
+    c.create("/key/key2", "value", true).unwrap();
 
     assert!(c.exists("/key/key1", false).unwrap().0 != 0);
 
@@ -569,10 +574,13 @@ fn main() {
         println!("{:?}", child);
     }
 
+    println!("{:?}", c.exists("/key", false).unwrap().0);
+    println!("{:?}", c.exists("/key/key1", false).unwrap().0);
+
     let result = c.commit(Transaction{
             checks: vec![
                 TxnCheck{key: "/key", version: 0},
-                TxnCheck{key: "/key/ke1", version: 0},
+                TxnCheck{key: "/key/key1", version: 0},
             ],
             ops: vec![
                 TxnOp::Create{key: "/new_key", value: "value", leased: true},
@@ -581,6 +589,8 @@ fn main() {
             ],
         }
     ).unwrap();
+
+    assert_eq!(c.get("/key/key1", false).unwrap().1, String::from("new_value"));
 
     c.erase("/key", 0).unwrap();
 }
