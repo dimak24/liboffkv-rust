@@ -1,16 +1,17 @@
-extern crate libc;
-use libc::{size_t,int64_t,c_int};
-use std::ffi::{CString,CStr};
+use std::ffi::CString;
 use std::os::raw::{c_char,c_void};
 use std::{mem,ptr,slice};
 
-use crate::ffi::*;
-use crate::result::*;
+use super::ffi::*;
+
 use crate::txn::*;
-use super::*;
+use crate::result::*;
 
 
-struct WatchHandle {
+type Result<T> = std::result::Result<T, OffkvError>;
+
+
+pub struct WatchHandle {
     _offkv_watch_handle: *mut c_void,
 }
 
@@ -37,17 +38,29 @@ pub struct Client {
 
 
 impl Client {
+    /// Crates a new client given url, where the service is located and
+    /// prefix all keys should start with.
+    ///
+    /// # Arguments:
+    ///
+    /// * `url` - Address, where the service is located. Must be of form
+    /// "<service_name>://<host>:<port>" where <service_name> is one of {zk, consul, etcd}.
+    ///
+    /// # Example:
+    ///
+    /// ```
+    /// use rsoffkv::client::Client;
+    /// let client = Client::new("zk://localhost:2181", "/test_prefix").unwrap();
+    /// ```
     pub fn new(url: &str, prefix: &str) -> Result<Self> {
         let mut error_code: i32 = 0;
 
-        let mut offkv_handle: *mut c_void = unsafe {
+        let offkv_handle: *mut c_void = unsafe {
             offkv_open(
                 // create a null-terminated owned string
                 // it will be live until the function returns so ptr will be valid
-                CString::new(url)
-                    .expect("Failed to create CString").as_ptr(),
-                CString::new(prefix)
-                    .expect("Failed to create CString").as_ptr(),
+                to_cstring(url).as_ptr(),
+                to_cstring(prefix).as_ptr(),
                 &mut error_code,
             )
         };
@@ -62,13 +75,12 @@ impl Client {
         let result = unsafe {
             offkv_create(
                 self.offkv_handle,
-                CString::new(key)
-                    .expect("Failed to create CString").as_ptr(),
+                to_cstring(key).as_ptr(),
                 // not null-terminated
                 value.as_ptr() as *const c_char,
                 value.len(),
                 match leased {
-                    true => OFFKV_LEASE as c_int,
+                    true => OFFKV_LEASE,
                     false => 0,
                 }
             )
@@ -84,8 +96,7 @@ impl Client {
         let result = unsafe {
             offkv_erase(
                 self.offkv_handle,
-                CString::new(key)
-                    .expect("Failed to create CString").as_ptr(),
+                to_cstring(key).as_ptr(),
                 version,
             )
         };
@@ -100,8 +111,7 @@ impl Client {
         let result = unsafe {
             offkv_set(
                 self.offkv_handle,
-                CString::new(key)
-                    .expect("Failed to create CString").as_ptr(),
+                to_cstring(key).as_ptr(),
                 value.as_ptr() as *const c_char,
                 value.len(),
             )
@@ -117,8 +127,7 @@ impl Client {
         let result = unsafe {
             offkv_cas(
                 self.offkv_handle,
-                CString::new(key)
-                    .expect("Failed to create CString").as_ptr(),
+                to_cstring(key).as_ptr(),
                 value.as_ptr() as *const c_char,
                 value.len(),
                 version,
@@ -142,8 +151,7 @@ impl Client {
         let offkv_GetResult{version, value, value_size} = unsafe {
             offkv_get(
                 self.offkv_handle,
-                CString::new(key)
-                    .expect("Failed to create CString").as_ptr(),
+                to_cstring(key).as_ptr(),
                 &mut watch_handle,
             )
         };
@@ -177,8 +185,7 @@ impl Client {
         let result = unsafe {
             offkv_exists(
                 self.offkv_handle,
-                CString::new(key)
-                    .expect("Failed to create CString").as_ptr(),
+                to_cstring(key).as_ptr(),
                 &mut watch_handle,
             )
         };
@@ -208,8 +215,7 @@ impl Client {
         let offkv_ChildrenResult{keys, nkeys, error_code} = unsafe {
             offkv_children(
                 self.offkv_handle,
-                CString::new(key)
-                    .expect("Failed to create CString").as_ptr(),
+                to_cstring(key).as_ptr(),
                 &mut watch_handle,
             )
         };
@@ -243,9 +249,7 @@ impl Client {
         let cstrings_checks : Vec<CString> =
             transaction.checks
                 .iter()
-                .map(|TxnCheck{key, ..}| {
-                    CString::new(*key).expect("Failed to create CString")
-                })
+                .map(|TxnCheck{key, ..}| to_cstring(key))
                 .collect();
 
         let cstrings_ops : Vec<CString> =
@@ -255,7 +259,7 @@ impl Client {
                     TxnOp::Create{key, ..} |
                     TxnOp::Set{key, ..} |
                     TxnOp::Erase{key}
-                    => CString::new(key).expect("Failed to create CString")
+                        => to_cstring(key)
                 })
                 .collect();
 
@@ -273,7 +277,7 @@ impl Client {
             match op {
                 TxnOp::Create{value, leased, ..} => {
                     ops.push(offkv_TxnOp{
-                        op_kind: OffkvTxnOpCode::OFFKV_OP_CREATE as c_int,
+                        op_kind: OffkvTxnOpCode::OFFKV_OP_CREATE as i32,
                         flags: match *leased {
                             true => OFFKV_LEASE,
                             false => 0
@@ -285,7 +289,7 @@ impl Client {
                 },
                 TxnOp::Set{value, ..} => {
                     ops.push(offkv_TxnOp{
-                        op_kind: OffkvTxnOpCode::OFFKV_OP_SET as c_int,
+                        op_kind: OffkvTxnOpCode::OFFKV_OP_SET as i32,
                         key: key.as_ptr(),
                         value: value.as_ptr() as *const c_char,
                         value_size: value.len(),
@@ -295,7 +299,7 @@ impl Client {
                 },
                 TxnOp::Erase{..} => {
                     ops.push(offkv_TxnOp{
-                        op_kind: OffkvTxnOpCode::OFFKV_OP_ERASE as c_int,
+                        op_kind: OffkvTxnOpCode::OFFKV_OP_ERASE as i32,
                         key: key.as_ptr(),
                         // default
                         flags: 0,
@@ -330,13 +334,10 @@ impl Client {
                 .map(|offkv_TxnOpResult{op_kind, version}|
                     match *op_kind {
                         x if x == OffkvTxnOpCode::OFFKV_OP_CREATE as i32
-                        => TxnOpResult::Create(*version),
+                            => TxnOpResult::Create(*version),
                         x if x == OffkvTxnOpCode::OFFKV_OP_SET as i32
-                        => TxnOpResult::Set(*version),
-                        x => {
-                            println!("{:?}", x as i32);
-                            unreachable!()
-                        },
+                            => TxnOpResult::Set(*version),
+                        _ => unreachable!(),
                     })
                 .collect())
         }
