@@ -1,16 +1,14 @@
+extern crate rsoffkv;
+
 use std::{thread,time};
 
-
-mod client;
-mod txn;
-
-use client::Client;
-use txn::*;
+use rsoffkv::client::Client;
+use rsoffkv::txn::{Transaction,TxnOp,TxnCheck};
 
 
 fn main() {
     let c = Client::new("zk://localhost:2181", "/rust_test_key").unwrap();
-    c.erase("/key", 0);
+    c.erase("/key", 0).unwrap_or_else(|_| {});
     c.create("/key", "value", false).unwrap();
     let v = c.set("/key", "new_value").unwrap();
     assert!(c.cas("/key", "kek", v).unwrap() != 0);
@@ -43,7 +41,7 @@ fn main() {
     println!("{:?}", c.exists("/key", false).unwrap().0);
     println!("{:?}", c.exists("/key/key1", false).unwrap().0);
 
-    let result = c.commit(Transaction{
+    c.commit(Transaction{
             checks: vec![
                 TxnCheck{key: "/key", version: 0},
                 TxnCheck{key: "/key/key1", version: 0},
