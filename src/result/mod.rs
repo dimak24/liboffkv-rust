@@ -23,16 +23,42 @@ extern "C" {
 }
 
 
+/// Rsoffkv errors.
 #[derive(Debug)]
 pub enum OffkvError {
+    /// returned if address given to `Client::new` is invalid
+    /// (address must be of form `<service_name>://<host>:<port>`)
     InvalidAddress,
+
+    /// returned if the key given to any function is invalid
+    /// key must consist of ASCII characters and be of form `(/[^/].+)+`
     InvalidKey,
+
+    /// returned when trying to perform an operation requiring key to exist on
+    /// non-existing entry OR if trying to create new key when its direct parent
+    /// doesn't exist
     NoEntry,
+
+    /// returned when trying to perform an operation requiring key to not exist on
+    /// existing entry
     EntryExists,
+
+    /// returned when trying to create children for leased node
     NoChildrenForEphemeral,
+
+    /// can be returned from any function if the connection with service was lost
     ConnectionLost,
+
+    /// returned from commit if the transaction was failed (not all checks are satisfied
+    /// or any operation failed)
+    ///
+    /// contains an index of failed operation
     TxnFailed(u32),
+
+    /// can be returned from any function in case of some service specific errors
     ServiceError,
+
+    /// can be returned from any function
     OutOfMemory,
 }
 

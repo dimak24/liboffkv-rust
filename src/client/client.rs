@@ -16,6 +16,7 @@ pub struct WatchHandle {
 }
 
 impl WatchHandle {
+    /// Waits until some events occurred (depends on method `WatchHandle` is returned from)
     pub fn wait(&self) {
         unsafe {
             offkv_watch(self._offkv_watch_handle);
@@ -38,13 +39,14 @@ pub struct Client {
 
 
 impl Client {
-    /// Crates a new client given url, where the service is located and
+    /// Creates a new client given url, where the service is located, and
     /// prefix all keys should start with.
     ///
     /// # Arguments:
     ///
     /// * `url` - Address, where the service is located. Must be of form
-    /// "<service_name>://<host>:<port>" where <service_name> is one of {zk, consul, etcd}.
+    /// `<service_name>://<host>:<port>` where `<service_name>` is one of `{zk, consul, etcd}`.
+    /// * `prefix` - An additional prefix, all used keys start with.
     ///
     /// # Example:
     ///
@@ -65,12 +67,27 @@ impl Client {
             )
         };
 
-        match from_error_code(error_code as i64) {
-            Some(error) => Err(error),
-            None => Ok(Client{offkv_handle}),
-        }
+        from_error_code(error_code as i64).map_or(Ok(Client{offkv_handle}), Err)
     }
 
+    /// Creates new key. The parent key must exist.
+    ///
+    /// # Arguments:
+    ///
+    /// * `key` - key to create
+    /// * `value` - initial value
+    /// * `leased` - if `true` the key will be removed on client's disconnect
+    ///
+    /// # Returns:
+    /// * inital version (`i64`)
+    ///
+    /// # Example:
+    /// ```
+    /// # use rsoffkv::client::Client;
+    /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
+    /// # client.erase("/key", 0).unwrap_or_else(|_| {});
+    /// let initial_version = client.create("/key", "value", false).unwrap();
+    /// ```
     pub fn create(&self, key: &str, value: &str, leased: bool) -> Result<i64> {
         let result = unsafe {
             offkv_create(
@@ -86,12 +103,40 @@ impl Client {
             )
         };
 
-        match from_error_code(result) {
-            Some(error) => Err(error),
-            None => Ok(result),
-        }
+        from_error_code(result).map_or(Ok(result), Err)
     }
 
+    /// Erases existing key.
+    ///
+    /// # Arguments:
+    ///
+    /// * `key` - key to erase
+    /// * `version` - if not 0, erases the key _and all its descendants_
+    /// iff its version equals to the given one,
+    /// otherwise does it unconditionally
+    ///
+    /// # Returns:
+    /// * ()
+    ///
+    /// # Example:
+    /// ```
+    /// # use rsoffkv::client::Client;
+    /// use rsoffkv::result::OffkvError;
+    /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
+    /// # client.erase("/key", 0).unwrap_or_else(|_| {});
+    /// let initial_version = client.create("/key", "value", false).unwrap();
+    ///
+    /// // does nothing since versions differ
+    /// client.erase("/key", initial_version + 1).unwrap();
+    ///
+    /// // should erase the key
+    /// client.erase("/key", initial_version).unwrap();
+    ///
+    /// // next try to erase should panic with `NoEntry`
+    /// if let OffkvError::NoEntry = client.erase("/key", 0).unwrap_err() {}
+    /// else { assert!(false) }
+    ///
+    /// ```
     pub fn erase(&self, key: &str, version: i64) -> Result<()> {
         let result = unsafe {
             offkv_erase(
@@ -101,12 +146,29 @@ impl Client {
             )
         };
 
-        match from_error_code(result as i64) {
-            Some(error) => Err(error),
-            None => Ok(()),
-        }
+        from_error_code(result as i64).map_or(Ok(()), Err)
     }
 
+    /// Assigns the value to the the key, creates it not exist (the parent key must exist).
+    ///
+    /// # Arguments:
+    ///
+    /// * `key` - key to assign value to
+    /// * `value` - value to be assigned
+    ///
+    /// # Returns:
+    ///
+    /// * new version of the key
+    ///
+    /// # Example:
+    /// ```
+    /// # use rsoffkv::client::Client;
+    /// # use rsoffkv::result::OffkvError;
+    /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
+    /// # client.erase("/key", 0).unwrap_or_else(|_| {});
+    /// let initial_version = client.set("/key", "value").unwrap();
+    /// let new_version = client.set("/key", "new_value").unwrap();
+    /// ```
     pub fn set(&self, key: &str, value: &str) -> Result<i64> {
         let result = unsafe {
             offkv_set(
@@ -117,12 +179,37 @@ impl Client {
             )
         };
 
-        match from_error_code(result) {
-            Some(error) => Err(error),
-            None => Ok(result),
-        }
+        from_error_code(result).map_or(Ok(result), Err)
     }
 
+    /// Compare and set operation: if version is not 0, assigns value to key iff
+    /// its current version equals to the given one, otherwise creates the key (its parent must exist).
+    ///
+    /// # Arguments:
+    ///
+    /// * `key` - the key CAS is to be performed on
+    /// * `value` - value to be assigned
+    /// * `version` - assumed current key's version
+    ///
+    /// # Returns:
+    ///
+    /// * new version of the key or 0 on failure (given version not equal to current)
+    ///
+    /// # Example:
+    /// ```
+    /// # use rsoffkv::client::Client;
+    /// # use rsoffkv::result::OffkvError;
+    /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
+    /// # client.erase("/key", 0).unwrap_or_else(|_| {});
+    /// let initial_version = client.cas("/key", "value", 0).unwrap();
+    ///
+    /// // does nothing due to given version isn't equal to the current one
+    /// let new_version = client.cas("/key", "new value", initial_version + 10).unwrap();
+    /// assert_eq!(0, new_version);
+    ///
+    /// let new_version = client.cas("/key", "new value", initial_version).unwrap();
+    /// assert_ne!(initial_version, new_version);
+    /// ```
     pub fn cas(&self, key: &str, value: &str, version: i64) -> Result<i64> {
         let result = unsafe {
             offkv_cas(
@@ -134,12 +221,48 @@ impl Client {
             )
         };
 
-        match from_error_code(result) {
-            Some(error) => Err(error),
-            None => Ok(result),
-        }
+        from_error_code(result).map_or(Ok(result), Err)
     }
 
+    /// Returns current version and assigned value.
+    ///
+    /// # Arguments:
+    ///
+    /// * `key` - a certain key
+    /// * `watch` - if true, a `WatchHandle` is returned,
+    /// it can wait for key deletion or its value change.
+    ///
+    /// # Returns:
+    ///
+    /// * current version of the key
+    /// * current assigned value
+    /// * (optional) `WatchHandle`
+    ///
+    /// # Example:
+    /// ```
+    /// # use rsoffkv::client::Client;
+    /// # use rsoffkv::result::OffkvError;
+    /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
+    /// # client.erase("/key", 0).unwrap_or_else(|_| {});
+    /// client.create("/key", "value", false).unwrap();
+    ///
+    /// use std::{thread,time};
+    ///
+    /// thread::spawn(|| {
+    ///     let another_client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
+    ///
+    ///     let (_, value, watch_handle) = another_client.get("/key", true).unwrap();
+    ///     assert_eq!(value, String::from("value"));
+    ///
+    ///     watch_handle.unwrap().wait();
+    ///
+    ///     let (_, value, _) = another_client.get("/key", false).unwrap();
+    ///     assert_eq!(value, String::from("new value"));
+    /// });
+    ///
+    /// thread::sleep(time::Duration::from_secs(5));
+    /// client.set("/key", "new value").unwrap();
+    /// ```
     pub fn get(&self, key: &str, watch: bool)
            -> Result<(i64, String, Option<WatchHandle>)> {
 
@@ -156,26 +279,62 @@ impl Client {
             )
         };
 
-        match from_error_code(version) {
-            Some(error) => Err(error),
-            None => {
-                // <str_value> now _owns_ the data <value> is pointing at
-                // so on its destroy the data will be freed
-                let str_value = unsafe {
-                    String::from_raw_parts(value as *mut u8, value_size, value_size)
-                };
+        if let Some(error) = from_error_code(version) {
+            Err(error)
+        } else {
+            // <str_value> now _owns_ the data <value> is pointing at
+            // so on its destroy the data will be freed
+            let str_value = unsafe {
+                String::from_raw_parts(value as *mut u8, value_size, value_size)
+            };
 
-                let watch_handle = if !watch_handle.is_null() {
-                    Some(WatchHandle{ _offkv_watch_handle: watch_handle})
-                } else {
-                    None
-                };
+            let watch_handle = if !watch_handle.is_null() {
+                Some(WatchHandle{ _offkv_watch_handle: watch_handle})
+            } else {
+                None
+            };
 
-                return Ok((version, str_value, watch_handle));
-            }
+            return Ok((version, str_value, watch_handle));
         }
     }
 
+    /// Check if the key exists.
+    ///
+    /// # Arguments:
+    ///
+    /// * `key` - key to check for existence
+    /// * `watch` - if true, creates `WatchHandle` that can wait for changes in the key's existence state
+    ///
+    /// # Returns:
+    ///
+    /// * current version if the key exists, 0 otherwise
+    /// * (optional) `WatchHandle`
+    ///
+    /// # Example:
+    /// ```
+    /// # use rsoffkv::client::Client;
+    /// # use rsoffkv::result::OffkvError;
+    /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
+    /// # client.erase("/key", 0).unwrap_or_else(|_| {});
+    /// client.create("/key", "value", false).unwrap();
+    ///
+    /// use std::{thread,time};
+    ///
+    /// thread::spawn(|| {
+    ///     let another_client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
+    ///
+    ///     let (version, watch_handle) = another_client.exists("/key", true).unwrap();
+    ///     assert_ne!(0, version);
+    ///
+    ///     watch_handle.unwrap().wait();
+    ///
+    ///     let (version, _) = another_client.exists("/key", false).unwrap();
+    ///     assert_eq!(0, version);
+    /// });
+    ///
+    /// thread::sleep(time::Duration::from_secs(5));
+    /// client.erase("/key", 0).unwrap();
+    /// ```
     pub fn exists(&self, key: &str, watch: bool) -> Result<(i64, Option<WatchHandle>)> {
         let mut watch_handle: *mut c_void = match watch {
             true => ptr::NonNull::dangling().as_ptr(),
@@ -190,22 +349,79 @@ impl Client {
             )
         };
 
-        match from_error_code(result) {
-            Some(error) => Err(error),
-            None => {
-                let watch_handle = if !watch_handle.is_null() {
-                    Some(WatchHandle{ _offkv_watch_handle: watch_handle})
-                } else {
-                    None
-                };
+        if let Some(error) = from_error_code(result) {
+            Err(error)
+        } else {
+            let watch_handle = if !watch_handle.is_null() {
+                Some(WatchHandle{ _offkv_watch_handle: watch_handle})
+            } else { None };
 
-                Ok((result, watch_handle))
-            }
+            Ok((result, watch_handle))
         }
     }
 
+    /// Returns a list of _direct_ children.
+    ///
+    /// # Arguments:
+    ///
+    /// * `key` - key whose children are to be found
+    /// * `watch` - if true, creates `WatchHandle`
+    /// that can wait for any changes among children of given key
+    ///
+    /// # Returns:
+    /// * `Vec` of direct children
+    /// * (optional) `WatchHandle`
+    ///
+    /// # Example:
+    /// ```
+    /// # use rsoffkv::client::Client;
+    /// # use rsoffkv::result::OffkvError;
+    /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
+    /// # client.erase("/key", 0).unwrap_or_else(|_| {});
+    /// client.create("/key", "value", false).unwrap();
+    /// client.create("/key/child1", "value", false).unwrap();
+    /// client.create("/key/child2", "value", false).unwrap();
+    /// client.create("/key/child3", "value", false).unwrap();
+    /// client.create("/key/child1/not_child", "value", false).unwrap();
+    ///
+    /// use std::collections::HashSet;
+    /// use std::{thread, time};
+    ///
+    /// thread::spawn(|| {
+    ///     let another_client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
+    ///
+    ///     let (children, watch_handle) = another_client.get_children("/key", true).unwrap();
+    ///     {
+    ///         let result: HashSet<_> = children.iter().cloned().collect();
+    ///         let real: HashSet<_> =
+    ///             ["/key/child1", "/key/child2", "/key/child3"]
+    ///                 .iter()
+    ///                 .map(|s| String::from(*s))
+    ///                 .collect();
+    ///
+    ///         assert_eq!(result, real);
+    ///     }
+    ///
+    ///     watch_handle.unwrap().wait();
+    ///
+    ///     let (children, _) = another_client.get_children("/key", false).unwrap();
+    ///     {
+    ///         let result: HashSet<_> = children.iter().cloned().collect();
+    ///         let real: HashSet<_> =
+    ///             ["/key/child1", "/key/child2"]
+    ///                 .iter()
+    ///                 .map(|s| String::from(*s))
+    ///                 .collect();
+    ///
+    ///         assert_eq!(result, real);
+    ///     }
+    /// });
+    ///
+    /// thread::sleep(time::Duration::from_secs(5));
+    /// client.erase("/key/child3", 0).unwrap();
+    /// ```
     pub fn get_children(&self, key: &str, watch: bool)
-                    -> Result<(Vec<String>, Option<WatchHandle>)> {
+        -> Result<(Vec<String>, Option<WatchHandle>)> {
 
         let mut watch_handle: *mut c_void = match watch {
             true => ptr::NonNull::dangling().as_ptr(),
@@ -220,28 +436,63 @@ impl Client {
             )
         };
 
-        match from_error_code(error_code as i64) {
-            Some(error) => Err(error),
-            None => {
-                let mut vec = Vec::new();
-                unsafe {
-                    let keys = slice::from_raw_parts(keys, nkeys);
-                    for key in keys {
-                        vec.push(CString::from_raw(*key).into_string().unwrap());
-                    }
+        if let Some(error) = from_error_code(error_code as i64) {
+            Err(error)
+        } else {
+            let mut vec = Vec::new();
+            unsafe {
+                let keys = slice::from_raw_parts(keys, nkeys);
+                for key in keys {
+                    vec.push(CString::from_raw(*key).into_string().unwrap());
                 }
-
-                let watch_handle = if !watch_handle.is_null() {
-                    Some(WatchHandle{ _offkv_watch_handle: watch_handle})
-                } else {
-                    None
-                };
-
-                Ok((vec, watch_handle))
             }
+
+            let watch_handle = if !watch_handle.is_null() {
+                Some(WatchHandle{ _offkv_watch_handle: watch_handle})
+            } else {
+                None
+            };
+
+            Ok((vec, watch_handle))
         }
     }
 
+    /// Commits transaction. Transaction consists of two parts: firstly list
+    /// some `TxnCheck`s -- checks that some keys have specified versions (or just exist);
+    /// next list `TxnOp`s -- operations.
+    ///
+    /// `Transaction`, `TxnCheck` and `TxnOp` are available in `rsoffkv::txn` module
+    ///
+    /// # Arguments:
+    ///
+    /// * `transaction` - transaction to commit
+    ///
+    /// # Rertuns:
+    ///
+    /// * `Vec` of TxnOpResult - for each operation affecting versions
+    /// (namely, `TxnOp::Set` and `TxnOp::Create`) returns a new key version
+    ///
+    /// # Example:
+    /// ```
+    /// # use rsoffkv::client::Client;
+    /// # use rsoffkv::result::OffkvError;
+    /// use rsoffkv::txn::{Transaction, TxnCheck, TxnOp};
+    /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
+    /// # client.erase("/key", 0).unwrap_or_else(|_| {});
+    /// let initial_version = client.create("/key", "value", false).unwrap();
+    /// client.commit(Transaction{
+    ///     checks: vec![
+    ///         TxnCheck{key: "/key", version: initial_version},
+    ///     ],
+    ///     ops: vec![
+    ///         TxnOp::Create{key: "/key/child", value: "value", leased: false},
+    ///         TxnOp::Set{key: "/key", value: "new value"},
+    ///     ],
+    /// });
+    ///
+    /// assert_eq!(client.get("/key", false).unwrap().1, String::from("new value"));
+    /// assert_eq!(client.get("/key/child", false).unwrap().1, String::from("value"));
+    /// ```
     pub fn commit(&self, transaction: Transaction) -> Result<Vec<TxnOpResult>> {
         let mut checks = Vec::new();
 

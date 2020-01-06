@@ -1,8 +1,19 @@
-extern crate gcc;
+extern crate cmake;
 
 fn main() {
-    gcc::Config::new()
-                .file("src/clib.h");
-                // .include("src")
-                // .compile("libhello.a");
+    // TODO: add option to build without installing liboffkv from submodule
+
+    let mut dst = cmake::Config::new("liboffkv")
+        .define("BUILD_TESTS", "OFF")
+        .define("ENABLE_ZK", "OFF")
+        .define("ENABLE_CONSUL", "ON")
+        .define("ENABLE_ETCD", "OFF")
+        .define("BUILD_CLIB", "ON")
+        .build_target("")
+        .build();
+
+    dst.push("build");
+
+    println!("cargo:rustc-link-search=native={}", dst.display());
+    println!("cargo:rustc-link-lib=dylib=liboffkv_c");
 }

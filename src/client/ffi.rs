@@ -3,7 +3,6 @@ use std::os::raw::{c_char,c_void};
 use std::ffi::CString;
 
 
-#[link(name = "liboffkv_c")]
 extern "C" {
     pub(super) fn offkv_open(
         url: *const c_char,
