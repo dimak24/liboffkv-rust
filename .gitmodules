@@ -1,0 +1,3 @@
+[submodule "liboffkv"]
+	path = liboffkv
+	url = https://github.com/offscale/liboffkv
