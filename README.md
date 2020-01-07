@@ -16,3 +16,7 @@ vcpkg install ppconsul etcdcpp zkpp
 ```bash
 cargo build
 ```
+## Docs
+```bash
+cargo doc --open
+```
