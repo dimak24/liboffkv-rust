@@ -43,24 +43,24 @@ before_install:
   - eval "$OSX_ENABLE_GCC"
 
 before_script:
-  - chmod ug+x $TRAVIS_BUILD_DIR/travis/*.sh
-  - $TRAVIS_BUILD_DIR/travis/prepare_vcpkg.sh "$HOME/vcpkg/" "${VCPKG_BOOT_EVAL}"
+  - chmod ug+x ${TRAVIS_BUILD_DIR}/travis/*.sh
+  - ${TRAVIS_BUILD_DIR}/travis/prepare_vcpkg.sh "${HOME}/vcpkg/" "${VCPKG_BOOT_EVAL}"
   - cp -r "$TRAVIS_BUILD_DIR/liboffkv/vcpkg/ports" "$HOME/vcpkg/"
-  - cd "$HOME/vcpkg"
+  - cd "${HOME}/vcpkg"
   - travis_wait 30 ./vcpkg upgrade --no-dry-run
-  - eval "$OSX_ENABLE_CLANG"
-  - travis_wait 25 ./vcpkg install gtest || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
-  - travis_wait 34 ./vcpkg install ppconsul || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
-  - travis_wait 25 ./vcpkg install zkpp || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
-  - travis_wait 35 ./vcpkg install offscale-libetcd-cpp || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
+  - eval "${OSX_ENABLE_CLANG}"
+  - travis_wait 34 ./vcpkg install ppconsul || ${TRAVIS_BUILD_DIR}/travis/export_vcpkg_logs.sh
+  - travis_wait 25 ./vcpkg install zkpp || ${TRAVIS_BUILD_DIR}/travis/export_vcpkg_logs.sh
+  - travis_wait 35 ./vcpkg install offscale-libetcd-cpp || ${TRAVIS_BUILD_DIR}/travis/export_vcpkg_logs.sh
   - rm -rf buildtrees
+  - cd ${TRAVIS_BUILD_DIR}
 
 script:
   - cargo build
-  - $TRAVIS_BUILD_DIR/travis/bootstrap_etcd.sh "$SYSTEM_TRIPLET" "$PREFERED_ARCHIVE_EXTENSION"
-  - $TRAVIS_BUILD_DIR/travis/bootstrap_consul.sh "$SYSTEM_TRIPLET"
-  - $TRAVIS_BUILD_DIR/travis/bootstrap_zk.sh
+  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_etcd.sh "${SYSTEM_TRIPLET}" "${PREFERED_ARCHIVE_EXTENSION}"
+  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_consul.sh "${SYSTEM_TRIPLET}"
+  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_zk.sh
   - cargo test
 
-after_failure:
-  - $TRAVIS_BUILD_DIR/travis/send_status_message.sh
+#after_failure:
+#  - $TRAVIS_BUILD_DIR/travis/send_status_message.sh
