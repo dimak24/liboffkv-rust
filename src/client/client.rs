@@ -524,7 +524,7 @@ impl Client {
     /// # use rsoffkv::result::OffkvError;
     /// use rsoffkv::txn::{Transaction, TxnCheck, TxnOp};
     /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
-    /// let initial_version = client.create("/key", "value", false).unwrap();
+    /// let initial_version = client.set("/key", "value").unwrap();
     /// client.commit(Transaction{
     ///     checks: vec![
     ///         TxnCheck{key: "/key", version: initial_version},
