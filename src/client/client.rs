@@ -11,20 +11,25 @@ use crate::result::*;
 type Result<T> = std::result::Result<T, OffkvError>;
 
 
-pub struct WatchHandle {
+pub struct WatchHandle<'a> {
+    _parent_client: &'a Client,
     _offkv_watch_handle: *mut c_void,
 }
 
-impl WatchHandle {
+impl<'a> WatchHandle<'a> {
     /// Waits until some events occurred (depends on method `WatchHandle` is returned from)
-    pub fn wait(&self) {
+    pub fn wait(self) {
         unsafe {
             offkv_watch(self._offkv_watch_handle);
         }
     }
+
+    pub(crate) fn new(parent: &'a Client, ffi_watch_handle: *mut c_void) -> Self {
+        Self{_parent_client: parent, _offkv_watch_handle: ffi_watch_handle}
+    }
 }
 
-impl Drop for WatchHandle {
+impl Drop for WatchHandle<'_> {
     fn drop(&mut self) {
         unsafe {
             offkv_watch_drop(self._offkv_watch_handle);
@@ -329,7 +334,7 @@ impl Client {
             };
 
             let watch_handle = if !watch_handle.is_null() {
-                Some(WatchHandle{ _offkv_watch_handle: watch_handle})
+                Some(WatchHandle::new(&self, watch_handle))
             } else {
                 None
             };
@@ -392,7 +397,7 @@ impl Client {
             Err(error)
         } else {
             let watch_handle = if !watch_handle.is_null() {
-                Some(WatchHandle{ _offkv_watch_handle: watch_handle})
+                Some(WatchHandle::new(&self, watch_handle))
             } else { None };
 
             Ok((result, watch_handle))
@@ -489,7 +494,7 @@ impl Client {
             }
 
             let watch_handle = if !watch_handle.is_null() {
-                Some(WatchHandle{ _offkv_watch_handle: watch_handle})
+                Some(WatchHandle::new(&self, watch_handle))
             } else {
                 None
             };
