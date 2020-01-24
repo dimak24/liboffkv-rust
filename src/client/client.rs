@@ -52,7 +52,9 @@ impl Client {
     ///
     /// ```
     /// use rsoffkv::client::Client;
-    /// let client = Client::new("zk://localhost:2181", "/test_prefix").unwrap();
+    /// let zk_client = Client::new("zk://localhost:2181", "/test_prefix").unwrap();
+    /// let consul_client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
+    /// let etcd_client = Client::new("etcd://localhost:2379", "/test_prefix").unwrap();
     /// ```
     pub fn new(url: &str, prefix: &str) -> Result<Self> {
         let mut error_code: i32 = 0;
@@ -85,8 +87,13 @@ impl Client {
     /// ```
     /// # use rsoffkv::client::Client;
     /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
-    /// # client.erase("/key", 0).unwrap_or_else(|_| {});
     /// let initial_version = client.create("/key", "value", false).unwrap();
+    ///
+    /// let (version, value, _) = client.get("/key", false).unwrap();
+    /// assert_eq!(version, initial_version);
+    /// assert_eq!(value, String::from("value"));
+    ///
+    /// # client.erase("/key", 0);
     /// ```
     pub fn create(&self, key: &str, value: &str, leased: bool) -> Result<i64> {
         let result = unsafe {
@@ -123,7 +130,6 @@ impl Client {
     /// # use rsoffkv::client::Client;
     /// use rsoffkv::result::OffkvError;
     /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
-    /// # client.erase("/key", 0).unwrap_or_else(|_| {});
     /// let initial_version = client.create("/key", "value", false).unwrap();
     ///
     /// // does nothing since versions differ
@@ -136,6 +142,7 @@ impl Client {
     /// if let OffkvError::NoEntry = client.erase("/key", 0).unwrap_err() {}
     /// else { assert!(false) }
     ///
+    /// # client.erase("/key", 0);
     /// ```
     pub fn erase(&self, key: &str, version: i64) -> Result<()> {
         let result = unsafe {
@@ -165,9 +172,23 @@ impl Client {
     /// # use rsoffkv::client::Client;
     /// # use rsoffkv::result::OffkvError;
     /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
-    /// # client.erase("/key", 0).unwrap_or_else(|_| {});
     /// let initial_version = client.set("/key", "value").unwrap();
-    /// let new_version = client.set("/key", "new_value").unwrap();
+    ///
+    /// {
+    ///     let (version, value, _) = client.get("/key", false).unwrap();
+    ///     assert_eq!(version, initial_version);
+    ///     assert_eq!(value, String::from("value"));
+    /// }
+    ///
+    /// let new_version = client.set("/key", "new value").unwrap();
+    ///
+    /// {
+    ///     let (version, value, _) = client.get("/key", false).unwrap();
+    ///     assert_eq!(version, new_version);
+    ///     assert_eq!(value, String::from("new value"));
+    /// }
+    ///
+    /// # client.erase("/key", 0);
     /// ```
     pub fn set(&self, key: &str, value: &str) -> Result<i64> {
         let result = unsafe {
@@ -200,15 +221,33 @@ impl Client {
     /// # use rsoffkv::client::Client;
     /// # use rsoffkv::result::OffkvError;
     /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
-    /// # client.erase("/key", 0).unwrap_or_else(|_| {});
     /// let initial_version = client.cas("/key", "value", 0).unwrap();
+    ///
+    /// {
+    ///     let (version, value, _) = client.get("/key", false).unwrap();
+    ///     assert_eq!(version, initial_version);
+    ///     assert_eq!(value, String::from("value"));
+    /// }
     ///
     /// // does nothing due to given version isn't equal to the current one
     /// let new_version = client.cas("/key", "new value", initial_version + 10).unwrap();
     /// assert_eq!(0, new_version);
     ///
+    /// {
+    ///     let (version, value, _) = client.get("/key", false).unwrap();
+    ///     assert_eq!(version, initial_version);
+    ///     assert_eq!(value, String::from("value"));
+    /// }
+    ///
     /// let new_version = client.cas("/key", "new value", initial_version).unwrap();
-    /// assert_ne!(initial_version, new_version);
+    ///
+    /// {
+    ///     let (version, value, _) = client.get("/key", false).unwrap();
+    ///     assert_eq!(version, new_version);
+    ///     assert_eq!(value, String::from("new value"));
+    /// }
+    ///
+    /// # client.erase("/key", 0);
     /// ```
     pub fn cas(&self, key: &str, value: &str, version: i64) -> Result<i64> {
         let result = unsafe {
@@ -243,8 +282,7 @@ impl Client {
     /// # use rsoffkv::client::Client;
     /// # use rsoffkv::result::OffkvError;
     /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
-    /// # client.erase("/key", 0).unwrap_or_else(|_| {});
-    /// client.create("/key", "value", false).unwrap();
+    /// client.create("/key", "value", false);
     ///
     /// use std::{thread,time};
     ///
@@ -261,7 +299,9 @@ impl Client {
     /// });
     ///
     /// thread::sleep(time::Duration::from_secs(5));
-    /// client.set("/key", "new value").unwrap();
+    /// client.set("/key", "new value");
+    ///
+    /// # client.erase("/key", 0);
     /// ```
     pub fn get(&self, key: &str, watch: bool)
            -> Result<(i64, String, Option<WatchHandle>)> {
@@ -298,7 +338,7 @@ impl Client {
         }
     }
 
-    /// Check if the key exists.
+    /// Checks if the key exists.
     ///
     /// # Arguments:
     ///
@@ -315,8 +355,7 @@ impl Client {
     /// # use rsoffkv::client::Client;
     /// # use rsoffkv::result::OffkvError;
     /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
-    /// # client.erase("/key", 0).unwrap_or_else(|_| {});
-    /// client.create("/key", "value", false).unwrap();
+    /// client.create("/key", "value", false);
     ///
     /// use std::{thread,time};
     ///
@@ -333,7 +372,7 @@ impl Client {
     /// });
     ///
     /// thread::sleep(time::Duration::from_secs(5));
-    /// client.erase("/key", 0).unwrap();
+    /// client.erase("/key", 0);
     /// ```
     pub fn exists(&self, key: &str, watch: bool) -> Result<(i64, Option<WatchHandle>)> {
         let mut watch_handle: *mut c_void = match watch {
@@ -377,12 +416,11 @@ impl Client {
     /// # use rsoffkv::client::Client;
     /// # use rsoffkv::result::OffkvError;
     /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
-    /// # client.erase("/key", 0).unwrap_or_else(|_| {});
-    /// client.create("/key", "value", false).unwrap();
-    /// client.create("/key/child1", "value", false).unwrap();
-    /// client.create("/key/child2", "value", false).unwrap();
-    /// client.create("/key/child3", "value", false).unwrap();
-    /// client.create("/key/child1/not_child", "value", false).unwrap();
+    /// client.create("/key", "value", false);
+    /// client.create("/key/child1", "value", false);
+    /// client.create("/key/child2", "value", false);
+    /// client.create("/key/child3", "value", false);
+    /// client.create("/key/child1/not_child", "value", false);
     ///
     /// use std::collections::HashSet;
     /// use std::{thread, time};
@@ -418,7 +456,10 @@ impl Client {
     /// });
     ///
     /// thread::sleep(time::Duration::from_secs(5));
-    /// client.erase("/key/child3", 0).unwrap();
+    /// client.erase("/key/child3", 0);
+    ///
+    /// # thread::sleep(time::Duration::from_secs(5));
+    /// # client.erase("/key", 0);
     /// ```
     pub fn get_children(&self, key: &str, watch: bool)
         -> Result<(Vec<String>, Option<WatchHandle>)> {
@@ -478,7 +519,6 @@ impl Client {
     /// # use rsoffkv::result::OffkvError;
     /// use rsoffkv::txn::{Transaction, TxnCheck, TxnOp};
     /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
-    /// # client.erase("/key", 0).unwrap_or_else(|_| {});
     /// let initial_version = client.create("/key", "value", false).unwrap();
     /// client.commit(Transaction{
     ///     checks: vec![
@@ -488,10 +528,12 @@ impl Client {
     ///         TxnOp::Create{key: "/key/child", value: "value", leased: false},
     ///         TxnOp::Set{key: "/key", value: "new value"},
     ///     ],
-    /// });
+    /// }).unwrap();
     ///
     /// assert_eq!(client.get("/key", false).unwrap().1, String::from("new value"));
     /// assert_eq!(client.get("/key/child", false).unwrap().1, String::from("value"));
+    ///
+    /// # client.erase("/key", 0);
     /// ```
     pub fn commit(&self, transaction: Transaction) -> Result<Vec<TxnOpResult>> {
         let mut checks = Vec::new();
