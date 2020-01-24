@@ -28,16 +28,16 @@ matrix:
           packages:
             - g++-8
             - cmake
-    - os: osx
-      osx_image: xcode10.2
-      env:
-        - MATRIX_EVAL="brew install gcc@7"
-        - OSX_ENABLE_GCC="CC=gcc-7 && CXX=g++-7"
-        - OSX_ENABLE_CLANG="CC=clang && CXX=clang++"
-        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
-        - SYSTEM_TRIPLET=darwin
-        - PREFERED_ARCHIVE_EXTENSION=zip
-      sudo: true
+#    - os: osx
+#      osx_image: xcode10.2
+#      env:
+#        - MATRIX_EVAL="brew install gcc@7"
+#        - OSX_ENABLE_GCC="CC=gcc-7 && CXX=g++-7"
+#        - OSX_ENABLE_CLANG="CC=clang && CXX=clang++"
+#        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
+#        - SYSTEM_TRIPLET=darwin
+#        - PREFERED_ARCHIVE_EXTENSION=zip
+#      sudo: true
 
 before_install:
   - eval "${MATRIX_EVAL}"
