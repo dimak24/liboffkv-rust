@@ -282,7 +282,7 @@ impl Client {
     /// # use rsoffkv::client::Client;
     /// # use rsoffkv::result::OffkvError;
     /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
-    /// client.create("/key", "value", false).unwrap();
+    /// client.create("/key", "value", false);
     ///
     /// use std::{thread,time};
     ///
@@ -299,7 +299,7 @@ impl Client {
     /// });
     ///
     /// thread::sleep(time::Duration::from_secs(5));
-    /// client.set("/key", "new value").unwrap();
+    /// client.set("/key", "new value");
     ///
     /// # client.erase("/key", 0);
     /// ```
@@ -355,7 +355,7 @@ impl Client {
     /// # use rsoffkv::client::Client;
     /// # use rsoffkv::result::OffkvError;
     /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
-    /// client.create("/key", "value", false).unwrap();
+    /// client.create("/key", "value", false);
     ///
     /// use std::{thread,time};
     ///
@@ -372,7 +372,7 @@ impl Client {
     /// });
     ///
     /// thread::sleep(time::Duration::from_secs(5));
-    /// client.erase("/key", 0).unwrap();
+    /// client.erase("/key", 0);
     /// ```
     pub fn exists(&self, key: &str, watch: bool) -> Result<(i64, Option<WatchHandle>)> {
         let mut watch_handle: *mut c_void = match watch {
@@ -416,11 +416,11 @@ impl Client {
     /// # use rsoffkv::client::Client;
     /// # use rsoffkv::result::OffkvError;
     /// let client = Client::new("consul://localhost:8500", "/test_prefix").unwrap();
-    /// client.create("/key", "value", false).unwrap();
-    /// client.create("/key/child1", "value", false).unwrap();
-    /// client.create("/key/child2", "value", false).unwrap();
-    /// client.create("/key/child3", "value", false).unwrap();
-    /// client.create("/key/child1/not_child", "value", false).unwrap();
+    /// client.create("/key", "value", false);
+    /// client.create("/key/child1", "value", false);
+    /// client.create("/key/child2", "value", false);
+    /// client.create("/key/child3", "value", false);
+    /// client.create("/key/child1/not_child", "value", false);
     ///
     /// use std::collections::HashSet;
     /// use std::{thread, time};
@@ -456,7 +456,7 @@ impl Client {
     /// });
     ///
     /// thread::sleep(time::Duration::from_secs(5));
-    /// client.erase("/key/child3", 0).unwrap();
+    /// client.erase("/key/child3", 0);
     ///
     /// # thread::sleep(time::Duration::from_secs(5));
     /// # client.erase("/key", 0);
