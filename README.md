@@ -1,3 +1,6 @@
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Build Status](https://travis-ci.org/dimak24/liboffkv-rust.svg?branch=master)](https://travis-ci.org/dimak24/liboffkv-rust)
+
 # rsoffkv
 
 #### This library is designed to provide a uniform interface for 3 different distributed KV-storages: etcd, Zookeeper, Consul.
