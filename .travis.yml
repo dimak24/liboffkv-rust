@@ -52,6 +52,7 @@ before_script:
   - travis_wait 34 ./vcpkg install ppconsul || ${TRAVIS_BUILD_DIR}/travis/export_vcpkg_logs.sh
   - travis_wait 25 ./vcpkg install zkpp || ${TRAVIS_BUILD_DIR}/travis/export_vcpkg_logs.sh
   - travis_wait 35 ./vcpkg install offscale-libetcd-cpp || ${TRAVIS_BUILD_DIR}/travis/export_vcpkg_logs.sh
+  - sleep 10
   - rm -rf buildtrees
   - cd ${TRAVIS_BUILD_DIR}
 
@@ -61,6 +62,3 @@ script:
   - ${TRAVIS_BUILD_DIR}/travis/bootstrap_consul.sh "${SYSTEM_TRIPLET}"
   - ${TRAVIS_BUILD_DIR}/travis/bootstrap_zk.sh
   - cargo test
-
-#after_failure:
-#  - $TRAVIS_BUILD_DIR/travis/send_status_message.sh
