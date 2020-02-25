@@ -1,26 +1,34 @@
 language: rust
 rust:
-  - stable
+  - nightly
+dist: xenial
 
 deploy:
   provider: cargo
   token:
     secure: DIJusjWt/24kP1wbE9R5bpaDkjODIaGE6nTuHGTG/Os2ir0UYolfGy3MsiZKgv/qE2LoOlig1Gb2qcdC4bLDOmiGRPMH5VhiWz4Z+e22yp9Zqu1cjCJgcwqGnM4QFf5L3AMhPCPoI1hpGHgPiXCZ4O1sQtc7E+hJqNGojHjwNna4ZGx0ugJfdBu4lREDgaRjjGKmdUmD+mBWkrqKGfEJTIVxuJxtvdLh4Kc3epJuPwYhBHj8fxMy6i7Ez8wu+zw8rw3V+k/yjkXBV8FtCzoexN2vxXXcWVmVbbvFkbvE7Q829bz22IUkd/sTpRL09YNUbC25SWrzuUs5PvABA9bkyHfu9Q47CvZm7Nlc+c+o1KjiCDAuh4ObSL43I930MsRz0NuLWOO6dPc/UDf9l5TxGAnzoJp3nXA+ro7fVWKbKqLvwVVOIFwDRVeBnI35v435g0Tq52IadTyQyVz0Oej/xS6gbBGouVLq+5NfV46XMAotx4dPnaKqf4bPJIc8+LwpN1UTGNeGTSlhOGQwX96fylryY1R6LCrjH3X+v3j0rYuCpaiblcnZdk9DK1U5zmThMVqWY+SYdOiv3XNdbyoUTYfmreBIdg5nPa21obIRRcwtodPUKRxZ3ZxrFY/uI+3dUfB7Nojc7eEdRr7v40c/mUgiAl5w0eW1tDuqdMiLUMM=
+  on:
+    branch: master
 
-cache:
-  directories:
-    - $HOME/vcpkg
+env:
+  global:
+    - VCPKG_VERSION="2020.01"
+    - VCPKG_TAR_HASH="0624e23ac06dc65978613ab6e2abea1dcc30e85fae4734e9e43d7abc79b8f103"
+    - VCPKG_ZIP_HASH="1bbe261f66aa84cc92e7640352bcc04ddfb88ae42b47fd348288172be588f4d9"
 
-matrix:
+    - VCPKG_ROOT="${HOME}/dependencies/vcpkg"
+
+    - CMAKE_USE_CLANG="export CC=clang && export CXX=clang++"
+    - CMAKE_USE_GCC="export CC=gcc-8 && export CXX=g++-8"
+
+jobs:
   include:
     - os: linux
-      sudo: true
       env:
         - VCPKG_TRIPLET=x64-linux
-        - MATRIX_EVAL="export CC=gcc-8 && export CXX=g++-8"
-        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
         - SYSTEM_TRIPLET=linux
         - PREFERED_ARCHIVE_EXTENSION=tar.gz
+        - ARCHIEVE_EXTRACTOR='tar -xzvf'
       addons:
         apt:
           sources:
@@ -28,38 +36,82 @@ matrix:
           packages:
             - g++-8
             - cmake
-#    - os: osx
-#      osx_image: xcode10.2
-#      env:
-#        - MATRIX_EVAL="brew install gcc@7"
-#        - OSX_ENABLE_GCC="CC=gcc-7 && CXX=g++-7"
-#        - OSX_ENABLE_CLANG="CC=clang && CXX=clang++"
-#        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
-#        - SYSTEM_TRIPLET=darwin
-#        - PREFERED_ARCHIVE_EXTENSION=zip
-#      sudo: true
+            - pkg-config
+            - libssl-dev
+    - os: osx
+      osx_image: xcode10.2
+      env:
+        - SYSTEM_TRIPLET=darwin
+        - PREFERED_ARCHIVE_EXTENSION=zip
+        - ARCHIEVE_EXTRACTOR='unzip -a'
+        - MATRIX_EVAL="brew install gcc@8 && brew unlink gcc && brew link gcc@8"
 
 before_install:
-  - eval "${MATRIX_EVAL}"
-  - eval "$OSX_ENABLE_GCC"
-
-before_script:
   - chmod ug+x ${TRAVIS_BUILD_DIR}/travis/*.sh
-  - ${TRAVIS_BUILD_DIR}/travis/prepare_vcpkg.sh "${HOME}/vcpkg/" "${VCPKG_BOOT_EVAL}"
-  - cp -r "$TRAVIS_BUILD_DIR/liboffkv/vcpkg/ports" "$HOME/vcpkg/"
-  - cd "${HOME}/vcpkg"
+
+  - |
+    case "${PREFERED_ARCHIVE_EXTENSION}" in
+      zip) VCPKG_HASH="${VCPKG_ZIP_HASH}" ;;
+      *) VCPKG_HASH="${VCPKG_TAR_HASH}" ;;
+    esac
+
+install:
+  - eval ${MATRIX_EVAL}
+
+  - mkdir -p "${HOME}/dependencies" && cd "${HOME}/dependencies"
+
+  - |
+    if ! test -f "${VCPKG_VERSION}.${PREFERED_ARCHIVE_EXTENSION}" ||
+        [[ ! $(sha256sum "${VCPKG_VERSION}.${PREFERED_ARCHIVE_EXTENSION}" | cut -d' ' -f1) = ${VCPKG_HASH} ]];
+      then
+        wget "https://github.com/microsoft/vcpkg/archive/${VCPKG_VERSION}.${PREFERED_ARCHIVE_EXTENSION}"
+        if [[ ! $(sha256sum "${VCPKG_VERSION}.${PREFERED_ARCHIVE_EXTENSION}" | cut -d' ' -f1) = ${VCPKG_HASH} ]];
+          then exit 1;
+        fi
+        ${ARCHIEVE_EXTRACTOR} "${VCPKG_VERSION}.${PREFERED_ARCHIVE_EXTENSION}"
+        rm -rf ${VCPKG_ROOT}
+        mv vcpkg-${VCPKG_VERSION} ${VCPKG_ROOT}
+      fi
+
+  - cd ${VCPKG_ROOT}
+  - cp -r "${TRAVIS_BUILD_DIR}/liboffkv/vcpkg/ports" "${VCPKG_ROOT}"
+
+  - eval ${CMAKE_USE_GCC}
+  - ./bootstrap-vcpkg.sh
   - travis_wait 30 ./vcpkg upgrade --no-dry-run
-  - eval "${OSX_ENABLE_CLANG}"
-  - travis_wait 34 ./vcpkg install ppconsul || ${TRAVIS_BUILD_DIR}/travis/export_vcpkg_logs.sh
-  - travis_wait 25 ./vcpkg install zkpp || ${TRAVIS_BUILD_DIR}/travis/export_vcpkg_logs.sh
-  - travis_wait 35 ./vcpkg install offscale-libetcd-cpp || ${TRAVIS_BUILD_DIR}/travis/export_vcpkg_logs.sh
+
+  - eval ${CMAKE_USE_CLANG}
+  - travis_wait 34 ./vcpkg install ppconsul
+  - travis_wait 25 ./vcpkg install zkpp
+  - travis_wait 35 ./vcpkg install offscale-libetcd-cpp
   - sleep 10
+
   - rm -rf buildtrees
   - cd ${TRAVIS_BUILD_DIR}
 
+  - git submodule sync --recursive
+  - git submodule foreach git reset --hard
+  - git submodule update --init --recursive --checkout
+
 script:
   - cargo build
-  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_etcd.sh "${SYSTEM_TRIPLET}" "${PREFERED_ARCHIVE_EXTENSION}"
-  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_consul.sh "${SYSTEM_TRIPLET}"
-  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_zk.sh
   - cargo test
+
+before_cache:
+  - cargo install cargo-tarpaulin
+
+after_success:
+  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_etcd.sh ${SYSTEM_TRIPLET} ${PREFERED_ARCHIVE_EXTENSION}
+  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_consul.sh ${SYSTEM_TRIPLET}
+  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_zk.sh
+
+  - export LD_LIBRARY_PATH="$(dirname $(find ${TRAVIS_BUILD_DIR} -name libliboffkv_c.so -print -quit)):${VCPKG_ROOT}/installed/${VCPKG_TRIPLET}/lib"
+  - |
+     cargo tarpaulin --out Xml --run-types Doctests
+     bash <(curl -s https://codecov.io/bash)
+
+cache:
+  directories:
+    - ${HOME}/dependencies
+    - ${TRAVIS_BUILD_DIR}/liboffkv
+  cargo: true

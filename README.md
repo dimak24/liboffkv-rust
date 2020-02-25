@@ -1,28 +1,28 @@
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Build Status](https://travis-ci.org/offscale/rsoffkv.svg?branch=master)](https://travis-ci.org/offscale/rsoffkv)
+[![codecov](https://codecov.io/gh/offscale/rsoffkv/graphs/badge.svg)](https://codecov.io/gh/offscale/rsoffkv)
 
 # rsoffkv
 
 #### This library is designed to provide a uniform interface for 3 different distributed KV-storages: etcd, Zookeeper, Consul.
 
-In our implementation, keys form a ZK-like hierarchy.
-Each key has a version that is i64 number greater than 0.
-
 Rsoffkv is a wrapper around _our_ C++ library [liboffkv](https://github.com/offscale/liboffkv).
+Design details can be found in liboffkv repository.
 
 
 ## Build
-* install dependencies (we recommend using vcpkg):
-```bash
-vcpkg install ppconsul etcdcpp zkpp
+* install [vcpkg](https://github.com/microsoft/vcpkg) and set `VCPKG_ROOT`
+* install dependencies
+```sh
+vcpkg install ppconsul etcdpp zkpp
 ```
 * build with cargo
-```bash
+```sh
 cargo build
 ```
-* run tests with
-```bash
-cargo tets
+* (optional) run documentation tests
+```sh
+cargo test
 ```
 
 
@@ -31,12 +31,12 @@ cargo tets
 use rsoffkv::client::Client;
 use rsoffkv::result::OffkvError;
 
-use rsoffkv::txn::{Transaction, TxnCheck, TxnOp};
+use rsoffkv::txn::{Transaction, TxnCheck, TxnOp, TxnOpResult};
 
 use std::{thread,time};
 
 fn main() {
-    // firstly specify service (zk | consul | etcd) and its address
+    // firstly specify service {zk | consul | etcd} and its address
     // you can also specify a prefix all keys will start with
     let client = Client::new("consul://localhost:8500", "/prefix").unwrap();
     
@@ -81,7 +81,7 @@ fn main() {
         ],
     ) {
         // on success a vector with changed version is returned
-        Ok(_ as Vec<TxnOpResult>) => println!("Success!"),
+        Ok(_) => println!("Success!"),
         // on failure an index of the first failed operation is returned
         Err(OffkvError::TxnFailed(failed_op)) => println!("Failed at {}", failed_op),
     };
