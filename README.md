@@ -1,5 +1,5 @@
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Build Status](https://travis-ci.org/dimak24/liboffkv-rust.svg?branch=master)](https://travis-ci.org/dimak24/liboffkv-rust)
+[![Build Status](https://travis-ci.org/offscale/rsoffkv.svg?branch=master)](https://travis-ci.org/offscale/rsoffkv)
 
 # rsoffkv
 
