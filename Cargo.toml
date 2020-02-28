@@ -1,6 +1,6 @@
 [package]
 name = "rsoffkv"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Dmitriy <dimak24.05@mail.ru>"]
 edition = "2018"
 description = "The library provides a uniform interface for 3 different distributed key-value storages: Zookeeper, Consul, ETCD"

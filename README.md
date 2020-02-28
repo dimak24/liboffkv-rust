@@ -1,5 +1,6 @@
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Build Status](https://travis-ci.org/offscale/rsoffkv.svg?branch=master)](https://travis-ci.org/offscale/rsoffkv)
+[![Travis CI](http://badges.herokuapp.com/travis/offscale/rsoffkv?branch=master&label=OSX&env=BADGE=osx&style=flat-square)](https://travis-ci.org/offscale/rsoffkv)
+[![Travis CI](http://badges.herokuapp.com/travis/offscale/rsoffkv?branch=master&label=Linux&env=BADGE=linux&style=flat-square)](https://travis-ci.org/offscale/rsoffkv)
 [![codecov](https://codecov.io/gh/offscale/rsoffkv/graphs/badge.svg)](https://codecov.io/gh/offscale/rsoffkv)
 
 # rsoffkv

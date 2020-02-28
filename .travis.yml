@@ -29,6 +29,7 @@ jobs:
         - SYSTEM_TRIPLET=linux
         - PREFERED_ARCHIVE_EXTENSION=tar.gz
         - ARCHIEVE_EXTRACTOR='tar -xzvf'
+        - BADGE=linux
       addons:
         apt:
           sources:
@@ -45,6 +46,7 @@ jobs:
         - PREFERED_ARCHIVE_EXTENSION=zip
         - ARCHIEVE_EXTRACTOR='unzip -a'
         - MATRIX_EVAL="brew install gcc@8 && brew unlink gcc && brew link gcc@8"
+        - BADGE=osx
 
 before_install:
   - chmod ug+x ${TRAVIS_BUILD_DIR}/travis/*.sh
@@ -95,16 +97,17 @@ install:
 
 script:
   - cargo build
+
+  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_etcd.sh ${SYSTEM_TRIPLET} ${PREFERED_ARCHIVE_EXTENSION}
+  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_consul.sh ${SYSTEM_TRIPLET}
+  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_zk.sh
+
   - cargo test
 
 before_cache:
   - cargo install cargo-tarpaulin
 
 after_success:
-  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_etcd.sh ${SYSTEM_TRIPLET} ${PREFERED_ARCHIVE_EXTENSION}
-  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_consul.sh ${SYSTEM_TRIPLET}
-  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_zk.sh
-
   - export LD_LIBRARY_PATH="$(dirname $(find ${TRAVIS_BUILD_DIR} -name libliboffkv_c.so -print -quit)):${VCPKG_ROOT}/installed/${VCPKG_TRIPLET}/lib"
   - |
      cargo tarpaulin --out Xml --run-types Doctests
