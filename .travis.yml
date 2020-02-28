@@ -44,13 +44,9 @@ jobs:
         - SYSTEM_TRIPLET=darwin
         - PREFERED_ARCHIVE_EXTENSION=zip
         - ARCHIEVE_EXTRACTOR='unzip -a'
-      addons:
-        homebrew:
-          packages:
-            - gcc@8
-            - openssl
+        - MATRIX_EVAL="brew install gcc@8 && brew unlink gcc && brew link gcc@8"
 
-install:
+before_install:
   - chmod ug+x ${TRAVIS_BUILD_DIR}/travis/*.sh
 
   - |
@@ -58,6 +54,9 @@ install:
       zip) VCPKG_HASH="${VCPKG_ZIP_HASH}" ;;
       *) VCPKG_HASH="${VCPKG_TAR_HASH}" ;;
     esac
+
+install:
+  - eval ${MATRIX_EVAL}
 
   - mkdir -p "${HOME}/dependencies" && cd "${HOME}/dependencies"
 
@@ -101,14 +100,13 @@ before_cache:
   - cargo install cargo-tarpaulin
 
 after_success:
-  - ls -l /usr/local/lib
+  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_etcd.sh ${SYSTEM_TRIPLET} ${PREFERED_ARCHIVE_EXTENSION}
+  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_consul.sh ${SYSTEM_TRIPLET}
+  - ${TRAVIS_BUILD_DIR}/travis/bootstrap_zk.sh
 
-  - "${TRAVIS_BUILD_DIR}/travis/bootstrap_etcd.sh" "${SYSTEM_TRIPLET}" "${PREFERED_ARCHIVE_EXTENSION}"
-  - "${TRAVIS_BUILD_DIR}/travis/bootstrap_consul.sh" "${SYSTEM_TRIPLET}"
-  - "${TRAVIS_BUILD_DIR}/travis/bootstrap_zk.sh"
-
+  - export LD_LIBRARY_PATH="$(dirname $(find ${TRAVIS_BUILD_DIR} -name libliboffkv_c.so -print -quit)):${VCPKG_ROOT}/installed/${VCPKG_TRIPLET}/lib"
   - |
-     LD_LIBRARY_PATH=$(dirname $(find -name libliboffkv.so)) cargo tarpaulin --out Xml --run-types Doctests
+     cargo tarpaulin --out Xml --run-types Doctests
      bash <(curl -s https://codecov.io/bash)
 
 cache:
