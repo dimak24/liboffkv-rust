@@ -8,14 +8,15 @@
 #### This library is designed to provide a uniform interface for 3 different distributed KV-storages: etcd, Zookeeper, Consul.
 
 Rsoffkv is a wrapper around _our_ C++ library [liboffkv](https://github.com/offscale/liboffkv).
-Design details can be found in liboffkv repository.
+Design details can be found in the liboffkv repository.
 
 
 ## Build
 * install [vcpkg](https://github.com/microsoft/vcpkg) and set `VCPKG_ROOT`
-* install dependencies
+* install dependencies (you can build build rsoffkv only for some of the supported KV-storages;
+in such a case feel free to change the value of `ENABLE_` in the build script)
 ```sh
-vcpkg install ppconsul etcdpp zkpp
+vcpkg install ppconsul offscale-libetcd-cpp zkpp
 ```
 * build with cargo
 ```sh

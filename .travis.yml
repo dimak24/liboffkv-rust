@@ -12,9 +12,10 @@ deploy:
 
 env:
   global:
-    - VCPKG_VERSION="2020.01"
-    - VCPKG_TAR_HASH="0624e23ac06dc65978613ab6e2abea1dcc30e85fae4734e9e43d7abc79b8f103"
-    - VCPKG_ZIP_HASH="1bbe261f66aa84cc92e7640352bcc04ddfb88ae42b47fd348288172be588f4d9"
+    # replace it after release with zkpp port
+    - VCPKG_VERSION="d1b89575bd2945e5a4fc54dca484a6f86112d33e"
+    - VCPKG_TAR_HASH="0c3796ca7393dce5f1fcf19e3d651dcf933114f726b084f4bf58b65ca540834c"
+    - VCPKG_ZIP_HASH="2f3497d73b587f6958b7a23d949cb89a9efb0cd3ddbc1ab44899f41cad3810c2"
 
     - VCPKG_ROOT="${HOME}/dependencies/vcpkg"
 
@@ -62,38 +63,34 @@ install:
 
   - mkdir -p "${HOME}/dependencies" && cd "${HOME}/dependencies"
 
+  - vcpkg_archive="${VCPKG_VERSION}.${PREFERED_ARCHIVE_EXTENSION}"
   - |
-    if ! test -f "${VCPKG_VERSION}.${PREFERED_ARCHIVE_EXTENSION}" ||
-        [[ ! $(sha256sum "${VCPKG_VERSION}.${PREFERED_ARCHIVE_EXTENSION}" | cut -d' ' -f1) = ${VCPKG_HASH} ]];
+    if ! test -f "${vcpkg_archive}" ||
+        [[ ! $(sha256sum "${vcpkg_archive}" | cut -d' ' -f1) = "${VCPKG_HASH}" ]];
       then
-        wget "https://github.com/microsoft/vcpkg/archive/${VCPKG_VERSION}.${PREFERED_ARCHIVE_EXTENSION}"
-        if [[ ! $(sha256sum "${VCPKG_VERSION}.${PREFERED_ARCHIVE_EXTENSION}" | cut -d' ' -f1) = ${VCPKG_HASH} ]];
+        wget "https://github.com/microsoft/vcpkg/archive/${vcpkg_archive}"
+        if [[ ! $(sha256sum "${vcpkg_archive}" | cut -d' ' -f1) = ${VCPKG_HASH} ]];
           then exit 1;
         fi
-        ${ARCHIEVE_EXTRACTOR} "${VCPKG_VERSION}.${PREFERED_ARCHIVE_EXTENSION}"
+        ${ARCHIEVE_EXTRACTOR} "${vcpkg_archive}"
         rm -rf ${VCPKG_ROOT}
         mv vcpkg-${VCPKG_VERSION} ${VCPKG_ROOT}
       fi
 
   - cd ${VCPKG_ROOT}
-  - cp -r "${TRAVIS_BUILD_DIR}/liboffkv/vcpkg/ports" "${VCPKG_ROOT}"
 
   - eval ${CMAKE_USE_GCC}
   - ./bootstrap-vcpkg.sh
   - travis_wait 30 ./vcpkg upgrade --no-dry-run
 
   - eval ${CMAKE_USE_CLANG}
-  - travis_wait 34 ./vcpkg install ppconsul
-  - travis_wait 25 ./vcpkg install zkpp
-  - travis_wait 35 ./vcpkg install offscale-libetcd-cpp
+  - travis_wait 30 ./vcpkg install ppconsul
+  - travis_wait 30 ./vcpkg install zkpp
+  - travis_wait 30 ./vcpkg install offscale-libetcd-cpp
   - sleep 10
 
   - rm -rf buildtrees
   - cd ${TRAVIS_BUILD_DIR}
-
-  - git submodule sync --recursive
-  - git submodule foreach git reset --hard
-  - git submodule update --init --recursive --checkout
 
 script:
   - cargo build
