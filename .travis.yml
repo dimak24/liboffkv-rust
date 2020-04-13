@@ -9,6 +9,7 @@ deploy:
     secure: DIJusjWt/24kP1wbE9R5bpaDkjODIaGE6nTuHGTG/Os2ir0UYolfGy3MsiZKgv/qE2LoOlig1Gb2qcdC4bLDOmiGRPMH5VhiWz4Z+e22yp9Zqu1cjCJgcwqGnM4QFf5L3AMhPCPoI1hpGHgPiXCZ4O1sQtc7E+hJqNGojHjwNna4ZGx0ugJfdBu4lREDgaRjjGKmdUmD+mBWkrqKGfEJTIVxuJxtvdLh4Kc3epJuPwYhBHj8fxMy6i7Ez8wu+zw8rw3V+k/yjkXBV8FtCzoexN2vxXXcWVmVbbvFkbvE7Q829bz22IUkd/sTpRL09YNUbC25SWrzuUs5PvABA9bkyHfu9Q47CvZm7Nlc+c+o1KjiCDAuh4ObSL43I930MsRz0NuLWOO6dPc/UDf9l5TxGAnzoJp3nXA+ro7fVWKbKqLvwVVOIFwDRVeBnI35v435g0Tq52IadTyQyVz0Oej/xS6gbBGouVLq+5NfV46XMAotx4dPnaKqf4bPJIc8+LwpN1UTGNeGTSlhOGQwX96fylryY1R6LCrjH3X+v3j0rYuCpaiblcnZdk9DK1U5zmThMVqWY+SYdOiv3XNdbyoUTYfmreBIdg5nPa21obIRRcwtodPUKRxZ3ZxrFY/uI+3dUfB7Nojc7eEdRr7v40c/mUgiAl5w0eW1tDuqdMiLUMM=
   on:
     branch: master
+    condition: $TRAVIS_OS_NAME = linux
 
 env:
   global:
@@ -46,7 +47,6 @@ jobs:
         - SYSTEM_TRIPLET=darwin
         - PREFERED_ARCHIVE_EXTENSION=zip
         - ARCHIEVE_EXTRACTOR='unzip -a'
-        - MATRIX_EVAL="brew install gcc@8 && brew unlink gcc && brew link gcc@8"
         - BADGE=osx
 
 before_install:
@@ -59,7 +59,8 @@ before_install:
     esac
 
 install:
-  - eval ${MATRIX_EVAL}
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew update; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew install gcc@8 && brew unlink gcc && brew link gcc@8; fi
 
   - mkdir -p "${HOME}/dependencies" && cd "${HOME}/dependencies"
 
@@ -67,15 +68,13 @@ install:
   - |
     if ! test -f "${vcpkg_archive}" ||
         [[ ! $(sha256sum "${vcpkg_archive}" | cut -d' ' -f1) = "${VCPKG_HASH}" ]];
-      then
-        wget "https://github.com/microsoft/vcpkg/archive/${vcpkg_archive}"
-        if [[ ! $(sha256sum "${vcpkg_archive}" | cut -d' ' -f1) = ${VCPKG_HASH} ]];
-          then exit 1;
-        fi
-        ${ARCHIEVE_EXTRACTOR} "${vcpkg_archive}"
-        rm -rf ${VCPKG_ROOT}
-        mv vcpkg-${VCPKG_VERSION} ${VCPKG_ROOT}
-      fi
+    then
+      wget "https://github.com/microsoft/vcpkg/archive/${vcpkg_archive}"
+      if [[ ! $(sha256sum "${vcpkg_archive}" | cut -d' ' -f1) = ${VCPKG_HASH} ]]; then exit 1; fi
+      ${ARCHIEVE_EXTRACTOR} "${vcpkg_archive}"
+      rm -rf ${VCPKG_ROOT}
+      mv vcpkg-${VCPKG_VERSION} ${VCPKG_ROOT}
+    fi
 
   - cd ${VCPKG_ROOT}
 
@@ -102,13 +101,18 @@ script:
   - cargo test
 
 before_cache:
-  - cargo install cargo-tarpaulin
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then cargo install cargo-tarpaulin; fi
 
 after_success:
-  - export LD_LIBRARY_PATH="$(dirname $(find ${TRAVIS_BUILD_DIR} -name libliboffkv_c.so -print -quit)):${VCPKG_ROOT}/installed/${VCPKG_TRIPLET}/lib"
   - |
-     cargo tarpaulin --out Xml --run-types Doctests
-     bash <(curl -s https://codecov.io/bash)
+    if [ "$TRAVIS_OS_NAME" = "linux" ];
+    then
+      export LD_LIBRARY_PATH="$(dirname
+        $(find ${TRAVIS_BUILD_DIR} -name libliboffkv_c.so -print -quit)):
+        ${VCPKG_ROOT}/installed/${VCPKG_TRIPLET}/lib"
+      cargo tarpaulin --out Xml --run-types Doctests
+      bash <(curl -s https://codecov.io/bash)
+    fi
 
 cache:
   directories:

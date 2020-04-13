@@ -1,6 +1,6 @@
 [package]
 name = "rsoffkv"
-version = "0.1.5"
+version = "0.1.6"
 authors = ["Dmitriy <dimak24.05@mail.ru>"]
 edition = "2018"
 description = "A uniform interface for 3 different distributed key-value storages: Zookeeper, Consul, ETCD"
@@ -9,7 +9,7 @@ license = "Apache-2.0 OR MIT"
 
 
 [package.metadata.docs.rs]
-features = [ "docs-only" ]
+rustc-args = ["--cfg feature=\"docs-only\""]
 
 
 [badges]
