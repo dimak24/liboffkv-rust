@@ -5,6 +5,8 @@ use std::process::Command;
 
 
 fn main() {
+    if cfg!(docs) { return; }
+
     let mut toolchain = PathBuf::from(
         std::env::var_os("VCPKG_ROOT")
             .expect("Please set VCPKG_ROOT before build"));

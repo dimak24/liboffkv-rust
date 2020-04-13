@@ -2,6 +2,8 @@
 [![Travis CI](http://badges.herokuapp.com/travis/offscale/rsoffkv?branch=master&label=OSX&env=BADGE=osx&style=flat-square)](https://travis-ci.org/offscale/rsoffkv)
 [![Travis CI](http://badges.herokuapp.com/travis/offscale/rsoffkv?branch=master&label=Linux&env=BADGE=linux&style=flat-square)](https://travis-ci.org/offscale/rsoffkv)
 [![codecov](https://codecov.io/gh/offscale/rsoffkv/graphs/badge.svg)](https://codecov.io/gh/offscale/rsoffkv)
+[![API](https://docs.rs/rsoffkv/badge.svg)](https://docs.rs/rsoffk)
+[![Crate](https://img.shields.io/crates/v/rsoffkv.svg)](https://crates.io/crates/rsoffkv)
 
 # rsoffkv
 
@@ -12,17 +14,17 @@ Design details can be found in the liboffkv repository.
 
 
 ## Build
-* install [vcpkg](https://github.com/microsoft/vcpkg) and set `VCPKG_ROOT`
-* install dependencies (you can build build rsoffkv only for some of the supported KV-storages;
+- install [vcpkg](https://github.com/microsoft/vcpkg) and set `VCPKG_ROOT`
+- install dependencies (you can build build rsoffkv only for some of the supported KV-storages;
 in such a case feel free to change the value of `ENABLE_` in the build script)
 ```sh
 vcpkg install ppconsul offscale-libetcd-cpp zkpp
 ```
-* build with cargo
+- build with cargo
 ```sh
 cargo build
 ```
-* (optional) run documentation tests
+- (optional) run documentation tests
 ```sh
 cargo test
 ```
