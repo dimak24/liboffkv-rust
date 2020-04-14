@@ -1,3 +1,4 @@
+os: linux
 language: rust
 rust:
   - nightly
@@ -77,20 +78,21 @@ install:
       mv vcpkg-${VCPKG_VERSION} ${VCPKG_ROOT}
     fi
   - popd
+  - eval ${CMAKE_USE_GCC}
+  - pushd "${VCPKG_ROOT}"
+  - ./bootstrap-vcpkg.sh
+  - travis_wait 30 ./vcpkg upgrade --no-dry-run
+  - eval ${CMAKE_USE_CLANG}
+  - popd
   - curl -sL https://github.com/offscale/kv-travis-scripts/archive/master.zip | jar xv
   - mv kv-travis-scripts-master "$HOME/scripts"
   - pushd "$HOME/scripts"
   - chmod +x *.bash
-  - eval ${CMAKE_USE_GCC}
-  - ./bootstrap-vcpkg.sh
-  - travis_wait 30 ./vcpkg upgrade --no-dry-run
-  - eval ${CMAKE_USE_CLANG}
   - travis_wait 34 ./vcpkg install ppconsul || "$HOME/scripts/export_vcpkg_logs.bash"
   - travis_wait 25 ./vcpkg install zkpp || "$HOME/scripts/export_vcpkg_logs.bash"
   - travis_wait 35 ./vcpkg install offscale-libetcd-cpp || "$HOME/scripts/export_vcpkg_logs.bash"
   - rm -rf buildtrees
   - popd
-
 
 script:
   - cargo build
