@@ -3,6 +3,14 @@ language: rust
 rust:
   - nightly
 dist: bionic
+env:
+  - USE_CLANG="export CC=clang && export CXX=clang++"
+  - USE_GCC="export CC=gcc-8 && export CXX=g++-8"
+  - RUST_BACKTRACE=1
+  - LIBOFFKV_CMAKE_FLAGS=""
+
+git:
+  depth: false
 
 deploy:
   provider: cargo
@@ -12,25 +20,15 @@ deploy:
     branch: master
     condition: $TRAVIS_OS_NAME = linux
 
-env:
-  global:
-    # replace it after release with zkpp port
-    - VCPKG_VERSION="d1b89575bd2945e5a4fc54dca484a6f86112d33e"
-    - VCPKG_TAR_HASH="0c3796ca7393dce5f1fcf19e3d651dcf933114f726b084f4bf58b65ca540834c"
-    - VCPKG_ZIP_HASH="2f3497d73b587f6958b7a23d949cb89a9efb0cd3ddbc1ab44899f41cad3810c2"
-    - VCPKG_ROOT="${HOME}/dependencies/vcpkg"
-    - CMAKE_USE_CLANG="export CC=clang && export CXX=clang++"
-    - CMAKE_USE_GCC="export CC=gcc-8 && export CXX=g++-8"
-    - RUST_BACKTRACE=1
-
-jobs:
+matrix:
   include:
     - os: linux
+      dist: bionic
       env:
-        - VCPKG_TRIPLET=x64-linux
-        - SYSTEM_TRIPLET=linux
-        - PREFERED_ARCHIVE_EXTENSION=tar.gz
-        - ARCHIVE_EXTRACTOR='tar -xzvf'
+        - VCPKG_TRIPLET="x64-linux"
+        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh -disableMetrics"
+        - SYSTEM_TRIPLET="linux"
+        - PREFERRED_ARCHIVE_EXTENSION="tar.gz"
         - BADGE=linux
       addons:
         apt:
@@ -44,63 +42,48 @@ jobs:
     - os: osx
       osx_image: xcode10.2
       env:
-        - SYSTEM_TRIPLET=darwin
-        - PREFERED_ARCHIVE_EXTENSION=zip
-        - ARCHIVE_EXTRACTOR='unzip -a'
+        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh -disableMetrics"
+        - SYSTEM_TRIPLET="darwin"
+        - PREFERRED_ARCHIVE_EXTENSION="zip"
         - BADGE=osx
       addons:
         homebrew:
           packages:
             - gcc@8
           update: true
+    # - os: windows
+    #   env:
+    #     - VCPKG_TRIPLET=x64-windows
+    #     - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.bat"
+    #     - SYSTEM_TRIPLET=windows
+    #     - PREFERRED_ARCHIVE_EXTENSION=zip
 
 before_install:
-  - |
-    case "${PREFERED_ARCHIVE_EXTENSION}" in
-      zip) VCPKG_HASH="${VCPKG_ZIP_HASH}" ;;
-      *) VCPKG_HASH="${VCPKG_TAR_HASH}" ;;
-    esac
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then eval "$USE_GCC"; fi
 
-install:
-  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew unlink gcc && brew link gcc@8; fi
-
-  - mkdir -p "${HOME}/dependencies" && pushd "$_"
-
-  - vcpkg_archive="${VCPKG_VERSION}.${PREFERED_ARCHIVE_EXTENSION}"
-  - |
-    if ! test -f "${vcpkg_archive}" ||
-        [[ ! $(sha256sum "${vcpkg_archive}" | cut -d' ' -f1) = "${VCPKG_HASH}" ]];
-    then
-      wget "https://github.com/microsoft/vcpkg/archive/${vcpkg_archive}"
-      if [[ ! $(sha256sum "${vcpkg_archive}" | cut -d' ' -f1) = ${VCPKG_HASH} ]]; then exit 1; fi
-      ${ARCHIVE_EXTRACTOR} "${vcpkg_archive}"
-      rm -rf ${VCPKG_ROOT}
-      mv vcpkg-${VCPKG_VERSION} ${VCPKG_ROOT}
-    fi
-  - popd
-  - eval ${CMAKE_USE_GCC}
-  - pushd "${VCPKG_ROOT}"
-  - ./bootstrap-vcpkg.sh
-  - travis_wait 30 ./vcpkg upgrade --no-dry-run
-  - eval ${CMAKE_USE_CLANG}
-  - popd
+before_script:
   - curl -sL https://github.com/offscale/kv-travis-scripts/archive/master.zip | jar xv
   - mv kv-travis-scripts-master "$HOME/scripts"
   - pushd "$HOME/scripts"
   - chmod +x *.bash
+  - ./prepare_vcpkg.bash "$HOME/vcpkg/" "$VCPKG_BOOT_EVAL"
+  - ./bootstrap_etcd.bash "$SYSTEM_TRIPLET" "$PREFERRED_ARCHIVE_EXTENSION"
+  - ./bootstrap_consul.bash "$SYSTEM_TRIPLET"
+  - ./bootstrap_zk.bash
+  - pushd "$HOME/vcpkg"
+  - travis_wait 30 ./vcpkg upgrade --no-dry-run
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then eval "$USE_CLANG"; fi
+  - travis_wait 25 ./vcpkg install gtest || "$HOME/scripts/export_vcpkg_logs.bash"
   - travis_wait 34 ./vcpkg install ppconsul || "$HOME/scripts/export_vcpkg_logs.bash"
   - travis_wait 25 ./vcpkg install zkpp || "$HOME/scripts/export_vcpkg_logs.bash"
   - travis_wait 35 ./vcpkg install offscale-libetcd-cpp || "$HOME/scripts/export_vcpkg_logs.bash"
   - rm -rf buildtrees
-  - popd
+
+after_failure:
+  - "$HOME/scripts/send_status_message.bash"
 
 script:
   - cargo build
-
-  - ./bootstrap_etcd.bash "$SYSTEM_TRIPLET" "$PREFERRED_ARCHIVE_EXTENSION"
-  - ./bootstrap_consul.bash "$SYSTEM_TRIPLET"
-  - ./bootstrap_zk.bash
-
   - cargo test
 
 before_cache:
@@ -108,8 +91,7 @@ before_cache:
 
 after_success:
   - |
-    if [ "$TRAVIS_OS_NAME" = "linux" ];
-    then
+    if [ "$TRAVIS_OS_NAME" = "linux" ]; then
       export LD_LIBRARY_PATH="$(dirname
         $(find ${TRAVIS_BUILD_DIR} -name libliboffkv_c.so -print -quit)):
         ${VCPKG_ROOT}/installed/${VCPKG_TRIPLET}/lib"
