@@ -14,7 +14,7 @@ cache:
     - ${TRAVIS_BUILD_DIR}/liboffkv
   cargo: true
 
-matrix:
+jobs:
   include:
     - os: linux
       dist: bionic
@@ -56,7 +56,8 @@ before_install:
   - export USE_CLANG="export CC=clang && export CXX=clang++"
   - export USE_GCC="export CC=gcc-8 && export CXX=g++-8"
   - export RUST_BACKTRACE=1
-  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then eval "$USE_GCC"; fi
+  - export VCPKG_ROOT="$HOME/vcpkg"
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then eval "$USE_GCC"; else eval "$USE_CLANG"; fi
 
 before_script:
   - curl -sL https://github.com/offscale/kv-travis-scripts/archive/master.zip | jar xv
@@ -70,7 +71,6 @@ before_script:
   - popd
   - pushd "$HOME/vcpkg"
   - travis_wait 30 ./vcpkg upgrade --no-dry-run
-  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then eval "$USE_CLANG"; fi
   - travis_wait 25 ./vcpkg install gtest || "$HOME/scripts/export_vcpkg_logs.bash"
   - travis_wait 34 ./vcpkg install ppconsul || "$HOME/scripts/export_vcpkg_logs.bash"
   - travis_wait 25 ./vcpkg install zkpp || "$HOME/scripts/export_vcpkg_logs.bash"
