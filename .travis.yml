@@ -3,22 +3,16 @@ language: rust
 rust:
   - nightly
 dist: bionic
-env:
-  - USE_CLANG="export CC=clang && export CXX=clang++"
-  - USE_GCC="export CC=gcc-8 && export CXX=g++-8"
-  - RUST_BACKTRACE=1
-  - LIBOFFKV_CMAKE_FLAGS=""
 
 git:
   depth: false
 
-deploy:
-  provider: cargo
-  token:
-    secure: DIJusjWt/24kP1wbE9R5bpaDkjODIaGE6nTuHGTG/Os2ir0UYolfGy3MsiZKgv/qE2LoOlig1Gb2qcdC4bLDOmiGRPMH5VhiWz4Z+e22yp9Zqu1cjCJgcwqGnM4QFf5L3AMhPCPoI1hpGHgPiXCZ4O1sQtc7E+hJqNGojHjwNna4ZGx0ugJfdBu4lREDgaRjjGKmdUmD+mBWkrqKGfEJTIVxuJxtvdLh4Kc3epJuPwYhBHj8fxMy6i7Ez8wu+zw8rw3V+k/yjkXBV8FtCzoexN2vxXXcWVmVbbvFkbvE7Q829bz22IUkd/sTpRL09YNUbC25SWrzuUs5PvABA9bkyHfu9Q47CvZm7Nlc+c+o1KjiCDAuh4ObSL43I930MsRz0NuLWOO6dPc/UDf9l5TxGAnzoJp3nXA+ro7fVWKbKqLvwVVOIFwDRVeBnI35v435g0Tq52IadTyQyVz0Oej/xS6gbBGouVLq+5NfV46XMAotx4dPnaKqf4bPJIc8+LwpN1UTGNeGTSlhOGQwX96fylryY1R6LCrjH3X+v3j0rYuCpaiblcnZdk9DK1U5zmThMVqWY+SYdOiv3XNdbyoUTYfmreBIdg5nPa21obIRRcwtodPUKRxZ3ZxrFY/uI+3dUfB7Nojc7eEdRr7v40c/mUgiAl5w0eW1tDuqdMiLUMM=
-  on:
-    branch: master
-    condition: $TRAVIS_OS_NAME = linux
+cache:
+  directories:
+    - ${HOME}/dependencies
+    - ${HOME}/Downloads
+    - ${TRAVIS_BUILD_DIR}/liboffkv
+  cargo: true
 
 matrix:
   include:
@@ -59,6 +53,9 @@ matrix:
     #     - PREFERRED_ARCHIVE_EXTENSION=zip
 
 before_install:
+  - export USE_CLANG="export CC=clang && export CXX=clang++"
+  - export USE_GCC="export CC=gcc-8 && export CXX=g++-8"
+  - export RUST_BACKTRACE=1
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then eval "$USE_GCC"; fi
 
 before_script:
@@ -70,6 +67,7 @@ before_script:
   - ./bootstrap_etcd.bash "$SYSTEM_TRIPLET" "$PREFERRED_ARCHIVE_EXTENSION"
   - ./bootstrap_consul.bash "$SYSTEM_TRIPLET"
   - ./bootstrap_zk.bash
+  - popd
   - pushd "$HOME/vcpkg"
   - travis_wait 30 ./vcpkg upgrade --no-dry-run
   - if [ "$TRAVIS_OS_NAME" = "linux" ]; then eval "$USE_CLANG"; fi
@@ -78,9 +76,7 @@ before_script:
   - travis_wait 25 ./vcpkg install zkpp || "$HOME/scripts/export_vcpkg_logs.bash"
   - travis_wait 35 ./vcpkg install offscale-libetcd-cpp || "$HOME/scripts/export_vcpkg_logs.bash"
   - rm -rf buildtrees
-
-after_failure:
-  - "$HOME/scripts/send_status_message.bash"
+  - popd
 
 script:
   - cargo build
@@ -88,6 +84,9 @@ script:
 
 before_cache:
   - if [ "$TRAVIS_OS_NAME" = "linux" ]; then cargo install cargo-tarpaulin; fi
+
+after_failure:
+  - "$HOME/scripts/send_status_message.bash"
 
 after_success:
   - |
@@ -99,9 +98,10 @@ after_success:
       bash <(curl -s https://codecov.io/bash)
     fi
 
-cache:
-  directories:
-    - ${HOME}/dependencies
-    - ${HOME}/Downloads
-    - ${TRAVIS_BUILD_DIR}/liboffkv
-  cargo: true
+deploy:
+  provider: cargo
+  token:
+    secure: DIJusjWt/24kP1wbE9R5bpaDkjODIaGE6nTuHGTG/Os2ir0UYolfGy3MsiZKgv/qE2LoOlig1Gb2qcdC4bLDOmiGRPMH5VhiWz4Z+e22yp9Zqu1cjCJgcwqGnM4QFf5L3AMhPCPoI1hpGHgPiXCZ4O1sQtc7E+hJqNGojHjwNna4ZGx0ugJfdBu4lREDgaRjjGKmdUmD+mBWkrqKGfEJTIVxuJxtvdLh4Kc3epJuPwYhBHj8fxMy6i7Ez8wu+zw8rw3V+k/yjkXBV8FtCzoexN2vxXXcWVmVbbvFkbvE7Q829bz22IUkd/sTpRL09YNUbC25SWrzuUs5PvABA9bkyHfu9Q47CvZm7Nlc+c+o1KjiCDAuh4ObSL43I930MsRz0NuLWOO6dPc/UDf9l5TxGAnzoJp3nXA+ro7fVWKbKqLvwVVOIFwDRVeBnI35v435g0Tq52IadTyQyVz0Oej/xS6gbBGouVLq+5NfV46XMAotx4dPnaKqf4bPJIc8+LwpN1UTGNeGTSlhOGQwX96fylryY1R6LCrjH3X+v3j0rYuCpaiblcnZdk9DK1U5zmThMVqWY+SYdOiv3XNdbyoUTYfmreBIdg5nPa21obIRRcwtodPUKRxZ3ZxrFY/uI+3dUfB7Nojc7eEdRr7v40c/mUgiAl5w0eW1tDuqdMiLUMM=
+  on:
+    branch: master
+    condition: $TRAVIS_OS_NAME = linux
