@@ -1,26 +1,22 @@
 [package]
 name = "rsoffkv"
-version = "0.1.7"
-authors = ["Dmitriy <dimak24.05@mail.ru>"]
+version = "0.1.8"
+authors = ["Offscale.io <@offscale>"]
 edition = "2018"
 description = "A uniform interface for 3 different distributed key-value storages: Zookeeper, Consul, ETCD"
 repository = "https://github.com/offscale/rsoffkv"
 license = "Apache-2.0 OR MIT"
 
-
 [package.metadata.docs.rs]
 rustc-args = ["--cfg docs"]
-
 
 [badges]
 travis-ci = { repository = "offscale/rsoffkv" }
 maintenance = { status = "actively-developed" }
 codecov = { repository = "offscale/rsoffkv" }
 
-
 [dependencies]
 libc = "0.2"
-
 
 [build-dependencies]
 cmake = "0.1"
