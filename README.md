@@ -5,7 +5,7 @@ rsoffkv
 [![Travis CI](http://badges.herokuapp.com/travis/offscale/rsoffkv?branch=master&label=Linux&env=BADGE=linux&style=flat-square)](https://travis-ci.org/offscale/rsoffkv)
 [![codecov](https://codecov.io/gh/offscale/rsoffkv/graphs/badge.svg)](https://codecov.io/gh/offscale/rsoffkv)
 [![API](https://docs.rs/rsoffkv/badge.svg)](https://docs.rs/rsoffkv)
-[![Crate](https://img.shields.io/crates/v/rsoffkv.svg)](https://crates.io/crates/rsoffkvv)
+[![Crate](https://img.shields.io/crates/v/rsoffkv.svg)](https://crates.io/crates/rsoffkv)
 
 #### This library is designed to provide a uniform interface for 3 different distributed KV-storages: etcd, Zookeeper, Consul.
 

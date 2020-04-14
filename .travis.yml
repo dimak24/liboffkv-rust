@@ -17,11 +17,10 @@ env:
     - VCPKG_VERSION="d1b89575bd2945e5a4fc54dca484a6f86112d33e"
     - VCPKG_TAR_HASH="0c3796ca7393dce5f1fcf19e3d651dcf933114f726b084f4bf58b65ca540834c"
     - VCPKG_ZIP_HASH="2f3497d73b587f6958b7a23d949cb89a9efb0cd3ddbc1ab44899f41cad3810c2"
-
     - VCPKG_ROOT="${HOME}/dependencies/vcpkg"
-
     - CMAKE_USE_CLANG="export CC=clang && export CXX=clang++"
     - CMAKE_USE_GCC="export CC=gcc-8 && export CXX=g++-8"
+    - RUST_BACKTRACE=1
 
 jobs:
   include:
